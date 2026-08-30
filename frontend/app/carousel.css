@@ -1,0 +1,7 @@
+.hero-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:heroFade .35s ease}
+.dynamic-hero-copy{max-width:470px;animation:heroCopyIn .35s ease}
+.dynamic-hero-copy h1 b{display:inline-block;max-width:440px;font-size:27px;line-height:1.02;letter-spacing:-.8px}
+.hero-dots button{border:0;padding:0;height:9px;width:9px;background:#d9d9d9;border-radius:50%;cursor:pointer}
+.hero-dots button.active{background:var(--red)}
+@keyframes heroFade{from{opacity:.45}to{opacity:1}}
+@keyframes heroCopyIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}

@@ -1,0 +1,5 @@
+# Optional local ML runtime. Install after requirements.txt to run MuRIL locally.
+# The application remains operational with clearly-labelled heuristic fallbacks.
+transformers>=4.55,<5
+torch>=2.8
+safetensors>=0.6
