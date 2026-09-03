@@ -192,7 +192,7 @@ export function HomePage() {
         )}
 
         {/* Real-Time Emerging & Popular Narratives Section */}
-        {(narratives.emerging.length > 0 || narratives.popular.length > 0) && (
+        {((narratives?.emerging?.length ?? 0) > 0 || (narratives?.popular?.length ?? 0) > 0) && (
           <section className="narratives-strip" style={{ margin: "1.5rem 0", padding: "1rem 1.25rem", background: "rgba(36, 39, 58, 0.7)", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.08)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -208,7 +208,7 @@ export function HomePage() {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "0.75rem" }}>
-              {narratives.emerging.slice(0, 3).map((item) => (
+              {(narratives?.emerging ?? []).slice(0, 3).map((item) => (
                 <Link
                   key={item.id}
                   href={`/topic/${item.topic_slug}`}
@@ -241,7 +241,7 @@ export function HomePage() {
                 </Link>
               ))}
 
-              {narratives.popular.slice(0, 3).map((item) => (
+              {(narratives?.popular ?? []).slice(0, 3).map((item) => (
                 <Link
                   key={item.id}
                   href={`/topic/${item.topic_slug}`}

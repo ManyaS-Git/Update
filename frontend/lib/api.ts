@@ -11,8 +11,39 @@ import type {
   PropagationData,
 } from "@/types";
 
-export const CLIENT_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
+export const CLIENT_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+
+const CANDIDATE_BASE_URLS = [
+  process.env.NEXT_PUBLIC_API_URL,
+  "http://127.0.0.1:8000",
+  "http://localhost:8000",
+  "http://127.0.0.1:8001",
+  "http://localhost:8001",
+].filter(Boolean) as string[];
+
+let activeApiUrl: string = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+export async function resilientFetch(path: string, init?: RequestInit): Promise<Response> {
+  // Try candidate URLs starting with current activeApiUrl
+  const urlsToTry = [
+    activeApiUrl,
+    ...CANDIDATE_BASE_URLS.filter((u) => u !== activeApiUrl),
+  ];
+
+  let lastError: unknown = null;
+  for (const baseUrl of urlsToTry) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`, init);
+      activeApiUrl = baseUrl;
+      return response;
+    } catch (err) {
+      lastError = err;
+      continue;
+    }
+  }
+  throw lastError || new Error(`Could not reach API server for ${path}`);
+}
 
 const titleCase = (value: string) =>
   value.toLowerCase().replace(/(^|_)(\w)/g, (_, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
@@ -56,8 +87,7 @@ export function buildBlankTopic(slug: string, title?: string): Topic {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const url = `${API_URL}${path}`;
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await resilientFetch(path, { cache: "no-store" });
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
 }
@@ -200,7 +230,7 @@ export async function getTopic(slug: string): Promise<Topic | null> {
 }
 
 export async function askAnalyst(topicSlug: string, question: string) {
-  const response = await fetch(`${CLIENT_API_URL}/api/ai/ask`, {
+  const response = await resilientFetch("/api/ai/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ topic_slug: topicSlug, question }),
@@ -215,7 +245,7 @@ export async function askAnalyst(topicSlug: string, question: string) {
 }
 
 async function clientJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${CLIENT_API_URL}${path}`, init);
+  const response = await resilientFetch(path, init);
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
 }
@@ -347,7 +377,54 @@ export interface AutomationStatus {
 
 export const getConnectors = () => clientJson<ConnectorStatus[]>("/api/connectors");
 export const getTopics = () => clientJson<TopicSummary[]>("/api/topics");
-export const getNarratives = () => clientJson<NarrativesResponse>("/api/topics/narratives");
+export async function getNarratives(): Promise<NarrativesResponse> {
+  try {
+    const raw = await clientJson<any>("/api/topics/narratives");
+    if (!raw) return { emerging: [], popular: [] };
+
+    // If already in { emerging: [...], popular: [...] } format
+    if (Array.isArray(raw.emerging) || Array.isArray(raw.popular)) {
+      return {
+        emerging: Array.isArray(raw.emerging) ? raw.emerging : [],
+        popular: Array.isArray(raw.popular) ? raw.popular : [],
+      };
+    }
+
+    // If raw is an array of narratives from /api/topics/narratives
+    if (Array.isArray(raw)) {
+      const emerging: NarrativeSummary[] = [];
+      const popular: NarrativeSummary[] = [];
+
+      for (let i = 0; i < raw.length; i++) {
+        const item = raw[i];
+        const summary: NarrativeSummary = {
+          id: item.id ?? i + 1,
+          topic_slug: item.slug ?? item.topic_slug ?? "general",
+          title: item.title ?? "Trending Narrative",
+          classification: item.is_emerging || item.status === "EMERGING" ? "emerging" : "popular",
+          velocity: item.velocity ?? 0,
+          momentum: item.momentum_score ?? item.momentum ?? 50,
+          volume: item.total_conversations ?? item.volume ?? 0,
+          sentiment_balance: (item.sentiment?.positive ?? 50) - (item.sentiment?.negative ?? 20),
+          dominant_platform: item.dominant_platform ?? item.category ?? "Multi-platform",
+          last_updated: item.published_at ?? "Just now",
+        };
+
+        if (summary.classification === "emerging") {
+          emerging.push(summary);
+        } else {
+          popular.push(summary);
+        }
+      }
+
+      return { emerging, popular };
+    }
+
+    return { emerging: [], popular: [] };
+  } catch {
+    return { emerging: [], popular: [] };
+  }
+}
 export const getPosts = (limit = 30, topic?: string) =>
   clientJson<SocialPost[]>(`/api/posts?limit=${limit}${topic ? `&topic=${encodeURIComponent(topic)}` : ""}`);
 export const getKafkaStatus = () => clientJson<KafkaStatusResponse>("/api/kafka/status");
