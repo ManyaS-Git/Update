@@ -20,6 +20,7 @@ class MuRILSentimentProvider:
     _lock=threading.Lock()
     _last_active="not_loaded"
     _last_error:str|None=None
+    _trained_model=None
     def __init__(self,settings:Settings|None=None):
         self.settings=settings or get_settings();self.last_error:str|None=None
         os.environ.setdefault("HF_HUB_DISABLE_XET","1");os.environ.setdefault("HF_HOME",self.settings.hf_model_cache)
@@ -40,6 +41,16 @@ class MuRILSentimentProvider:
             except Exception as exc:
                 self.last_error=f"local MuRIL unavailable: {exc}";MuRILSentimentProvider._last_error=self.last_error
                 if provider=="local":raise
+        if provider=="auto":
+            try:
+                path=os.path.join(self.settings.trained_model_dir,"sentiment.joblib")
+                if os.path.exists(path):
+                    if MuRILSentimentProvider._trained_model is None:
+                        from joblib import load
+                        MuRILSentimentProvider._trained_model=load(path)
+                    probabilities=MuRILSentimentProvider._trained_model.predict_proba([text])[0];index=int(probabilities.argmax());label=str(MuRILSentimentProvider._trained_model.classes_[index]);score=float(probabilities[index]);MuRILSentimentProvider._last_active="validated_cpu_fallback";return SentimentPrediction(label,score,"updates-supervised-sentiment-v1")
+            except Exception as exc:
+                self.last_error=f"trained fallback unavailable: {exc}";MuRILSentimentProvider._last_error=self.last_error
         if provider in {"auto","endpoint"} and self.settings.hf_inference_endpoint_url:
             try:
                 headers={"Authorization":f"Bearer {self.settings.hf_token}"} if self.settings.hf_token else {}

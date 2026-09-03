@@ -26,11 +26,27 @@ class Settings(BaseSettings):
     instagram_media_ids: str = ""
     meta_graph_version: str = "v25.0"
     collector_max_retries: int = 3
+    admin_api_key: str | None = None
+    allow_unauthenticated_local_mutations: bool = True
+    privacy_hash_secret: str | None = None
+    max_request_bytes: int = 1_000_000
+    api_rate_limit_per_minute: int = 240
+    expensive_rate_limit_per_minute: int = 30
     auto_ingestion_enabled: bool = False
-    auto_ingestion_interval_minutes: int = 30
+    auto_ingestion_interval_minutes: int = 120
     auto_ingestion_platforms: str = "x,youtube,reddit,facebook,instagram"
-    auto_ingestion_max_topics: int = 8
+    auto_ingestion_max_topics: int = 100
     auto_ingestion_max_items_per_platform: int = 100
+    auto_news_refresh_enabled: bool = True
+    auto_news_refresh_interval_minutes: int = 5
+    auto_news_refresh_max_items: int = 12
+    public_signal_batch_size: int = 100
+    public_signal_workers: int = 2
+    analysis_refresh_interval_minutes: int = 120
+    trained_model_dir: str = "./data/artifacts"
+    learning_min_labels: int = 60
+    continuous_learning_enabled: bool = True
+    continuous_learning_interval_minutes: int = 60
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     @property

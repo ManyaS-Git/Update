@@ -7,8 +7,9 @@ from app.collectors.adapters import COLLECTORS,get_collector
 from app.models.database import CommentAnalysisRecord,IngestionJobRecord,SourceCommentRecord,TopicRecord,get_db
 from app.models.schemas import CommentInput,CommentIntelligence,IngestionRequest
 from app.services.ingestion import run_ingestion
-from app.services.auto_ingestion import automation_status,run_auto_ingestion
+from app.services.auto_ingestion import automation_status,run_auto_ingestion,run_news_analysis_cycle
 from app.services.intelligence import CommentIntelligenceService,model_status
+from app.core.security import require_admin
 
 router=APIRouter(prefix="/api",tags=["social intelligence"])
 
@@ -24,12 +25,12 @@ def models():return model_status()
 def classify(payload:CommentInput):return CommentIntelligenceService().analyse(payload)
 
 @router.post("/classify/batch",response_model=list[CommentIntelligence])
-def classify_batch(payload:list[CommentInput]):
+def classify_batch(payload:list[CommentInput],_:None=Depends(require_admin)):
     if len(payload)>500:raise HTTPException(422,"Batch limit is 500 comments")
     service=CommentIntelligenceService();return [service.analyse(item) for item in payload]
 
 @router.post("/ingestion/run")
-async def ingest(payload:IngestionRequest,db:Session=Depends(get_db)):
+async def ingest(payload:IngestionRequest,db:Session=Depends(get_db),_:None=Depends(require_admin)):
     try:return await run_ingestion(db,payload)
     except Exception as exc:raise HTTPException(400,str(exc)) from exc
 
@@ -41,7 +42,10 @@ def jobs(db:Session=Depends(get_db)):
 def auto_status():return automation_status()
 
 @router.post("/ingestion/automation/run-now")
-async def auto_run():return await run_auto_ingestion()
+async def auto_run(_:None=Depends(require_admin)):return await run_auto_ingestion()
+
+@router.post("/ingestion/pipeline/run-now")
+async def pipeline_run(_:None=Depends(require_admin)):return await run_news_analysis_cycle()
 
 @router.get("/comments")
 def comments(topic_slug:str="reservation-protest",platform:str|None=None,sentiment:str|None=None,stance:str|None=None,language:str|None=None,safety:str|None=None,sort:str=Query("recent",pattern="^(recent|influence)$"),limit:int=Query(100,ge=1,le=500),db:Session=Depends(get_db)):

@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 import asyncio,httpx
+from urllib.parse import urlparse
 from app.collectors.base import BaseCollector
 from app.core.config import Settings, get_settings
 from app.models.schemas import NormalizedContent
@@ -23,6 +24,8 @@ class OfficialCollector(BaseCollector):
     def normalize(self,raw:dict,topic_id:str)->NormalizedContent:
         return NormalizedContent(platform=self.platform,external_id=str(raw["id"]),topic_id=topic_id,author_id=raw.get("author_id"),text=raw.get("text","").strip(),timestamp=_time(raw.get("created_at")),parent_id=raw.get("parent_id"),engagement=raw.get("engagement",{}),public_profile_signals=raw.get("public_signals",{}),raw_metadata=raw.get("metadata",{}))
     async def request(self,method:str,url:str,**kwargs)->dict:
+        parsed=urlparse(url);host=(parsed.hostname or "").lower();allowed={"api.x.com","www.googleapis.com","www.reddit.com","oauth.reddit.com","graph.facebook.com","graph.instagram.com"}
+        if parsed.scheme!="https" or host not in allowed:raise CollectorError(f"Blocked unexpected collector URL host: {host or 'missing'}")
         async with httpx.AsyncClient(timeout=30,follow_redirects=True) as client:
             for attempt in range(self.settings.collector_max_retries):
                 response=await client.request(method,url,**kwargs)
@@ -30,7 +33,8 @@ class OfficialCollector(BaseCollector):
                 if response.status_code not in {429,500,502,503,504} or attempt+1>=self.settings.collector_max_retries:break
                 retry_after=response.headers.get("retry-after")
                 await asyncio.sleep(min(30,float(retry_after) if retry_after and retry_after.isdigit() else 2**attempt))
-        raise CollectorError(f"{self.platform} API returned {response.status_code}: {response.text[:300]}")
+        request_id=response.headers.get("x-request-id") or response.headers.get("x-fb-trace-id") or "unavailable"
+        raise CollectorError(f"{self.platform} API returned {response.status_code} (request id: {request_id})")
 
 class XCollector(OfficialCollector):
     platform="x";required_environment=("x_bearer_token",)

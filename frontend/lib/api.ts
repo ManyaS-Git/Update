@@ -14,11 +14,11 @@ async function getJson<T>(path:string):Promise<T>{
 
 type Meta={slug:string;title:string;subtitle:string;image?:string;category?:string;demo?:boolean;total_conversations:number;updated:string};
 type Sentiment={negative:number;neutral:number;positive:number;change_last_6h:number};
-type Audience={geography:{value:string};language:{distribution:Record<string,number>};age_bracket:{value:string;confidence:string};interest_groups:string[];key_topics?:string[];leading_platform?:string};
+type Audience={geography:{value:string;confidence?:string};language:{distribution:Record<string,number>;confidence?:string};age_bracket:{value:string;confidence:string};interest_groups:string[];key_topics?:string[];leading_platform?:string;confidence?:{interests?:string;topics?:string;platform?:string}};
 type TrendApi={time:string;volume:number;negative:number}[];
 type DriverApi={title:string;description:string;status:string}[];
 type VoiceApi={quote:string;label:string;stance?:string;source?:string}[];
-type Confidence={level:string;sources:string[];qualified_conversations:number;low_signal_excluded_or_downweighted:number};
+type Confidence={level:string;sources:string[];qualified_conversations:number;qualified_public_signals?:number;low_signal_excluded_or_downweighted:number;analysis_scope?:string;metric_label?:string};
 type Brief={insight:string};
 type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:string;target:string;weight:number}[]};
 
@@ -39,7 +39,7 @@ export async function getTopic(slug:string):Promise<Topic|null>{
     const mappedDrivers:Driver[]=drivers.map(driver=>({title:driver.title,description:driver.description,status:titleCase(driver.status) as Driver["status"]}));
     const mappedVoices:PublicVoice[]=voices.map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
     const rawAge=audience.age_bracket.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
-    return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,preview:Boolean(meta.demo&&meta.total_conversations===0),totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,language,age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),topics:audience.key_topics??[],platform:audience.leading_platform??""},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
+    return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,preview:Boolean(meta.demo&&meta.total_conversations===0),analysisScope:confidence.analysis_scope,metricLabel:confidence.metric_label??"public conversations analysed",totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,geographyConfidence:audience.geography.confidence??"Unavailable",language,languageConfidence:audience.language.confidence??"Unavailable",age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),interestsConfidence:audience.confidence?.interests??"Unavailable",topics:audience.key_topics??[],topicsConfidence:audience.confidence?.topics??"Unavailable",platform:audience.leading_platform??"",platformConfidence:audience.confidence?.platform??"Unavailable"},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_public_signals??confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
   }catch{return slug===reservationTopic.slug?reservationTopic:null}
 }
 
@@ -63,6 +63,7 @@ export const searchContent=(query:string)=>clientJson<{query:string;stories:Stor
 export const setBookmark=(id:string,enabled:boolean)=>clientJson<{story_id:string;bookmarked:boolean}>(`/api/bookmarks/${id}`,{method:enabled?"POST":"DELETE"});
 export const getPreferences=()=>clientJson<{notifications_enabled:boolean}>("/api/preferences");
 export const setNotifications=(enabled:boolean)=>clientJson<{notifications_enabled:boolean}>("/api/preferences/notifications",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});
+export const chatWithAssistant=(message:string,topicSlug?:string,pagePath?:string)=>clientJson<{answer:string;actions:{label:string;href:string}[];evidence:string[]}>("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message,topic_slug:topicSlug,page_path:pagePath})});
 export interface ConnectorStatus{platform:string;configured:boolean;description:string;credential_fields:string[];discovery_supported:boolean;requires_targets:boolean}
 export interface IngestionJob{job_id:string;topic_slug:string;platforms:string[];query:string;status:string;results:Record<string,{fetched:number;stored:number}>;errors:Record<string,string>;started_at:string;completed_at:string|null}
 export interface TopicSummary{slug:string;title:string;subtitle:string;total_conversations:number;updated:string;demo:boolean}

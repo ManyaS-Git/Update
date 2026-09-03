@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.orm import Session
@@ -7,6 +7,8 @@ from app.models.database import BookmarkRecord, PreferenceRecord, StoryRecord, T
 from app.models.schemas import NotificationPreference, StoryCreate
 from app.services.database import bookmarked_ids, story_dict
 from app.services.news import DEFAULT_QUERY, refresh_latest_news
+from app.services.auto_ingestion import enrich_topics
+from app.core.security import require_admin
 
 router = APIRouter(prefix="/api", tags=["content"])
 
@@ -42,9 +44,11 @@ def stories(
 
 @router.post("/news/refresh")
 def refresh_news(
+    background_tasks: BackgroundTasks,
     q: str = Query(DEFAULT_QUERY, min_length=2, max_length=300),
     limit: int = Query(12, ge=1, le=50),
     db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
 ):
     try:
         result = refresh_latest_news(db, q, limit)
@@ -52,11 +56,12 @@ def refresh_news(
         raise HTTPException(503, f"Latest-news provider unavailable: {exc}") from exc
     except Exception as exc:
         raise HTTPException(502, "Latest-news provider did not return a usable response") from exc
+    background_tasks.add_task(enrich_topics,result["added_topic_slugs"])
     return {**result, "stories": stories(category=None, q=None, limit=limit, offset=0, db=db)}
 
 
 @router.post("/stories", status_code=201)
-def create_story(payload: StoryCreate, db: Session = Depends(get_db)):
+def create_story(payload: StoryCreate, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     if not db.get(TopicRecord, payload.topic_slug):
         raise HTTPException(404, "Topic not found")
     story = StoryRecord(
@@ -165,12 +170,13 @@ def report(slug: str, db: Session = Depends(get_db)):
     analytics = topic.analytics
     sentiment = analytics.get("sentiment", {})
     drivers = analytics.get("drivers", [])
+    confidence=analytics.get("confidence",{});metric_label=confidence.get("metric_label","public conversations analysed")
     body = "\n".join(
         [
             f"{topic.title} — Public Conversation Brief",
             "=" * 56,
             f"{topic.subtitle}",
-            f"Conversations analysed: {topic.total_conversations:,}",
+            f"{metric_label.title()}: {topic.total_conversations:,}",
             f"Last updated: {topic.updated}",
             "",
             "Sentiment",
@@ -179,7 +185,7 @@ def report(slug: str, db: Session = Depends(get_db)):
             "Conversation drivers",
             *[f"- {item.get('title')}: {item.get('description')}" for item in drivers],
             "",
-            "Methodology note: seeded demonstration data; connect approved collectors for production analysis.",
+            f"Methodology note: {confidence.get('disclaimer','Connect approved collectors for production analysis.')}",
         ]
     )
     headers = {"Content-Disposition": f'attachment; filename="{slug}-conversation-brief.txt"'}

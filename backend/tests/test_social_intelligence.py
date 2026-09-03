@@ -2,6 +2,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.intelligence import CommentIntelligenceService
 from app.models.schemas import CommentInput
+from app.services.database import preview_analytics
+from app.services.ingestion import _hash_author
+import hashlib
 
 client=TestClient(app)
 
@@ -50,3 +53,33 @@ def test_comment_summary_has_privacy_disclosure():
     summary=client.get("/api/comments/summary").json()
     assert "not guessed" in summary["disclosure"]
     assert "signal_quality" in summary
+
+def test_new_story_context_is_complete_and_evidence_scoped():
+    analytics=preview_analytics("Students protest new education policy","Education","Example News")
+    assert analytics["brief"]["insight"]
+    assert analytics["drivers"] and analytics["trends"]
+    assert analytics["audience"]["language"]["confidence"]=="High"
+    assert analytics["audience"]["geography"]["confidence"]=="Unavailable"
+    assert analytics["audience"]["confidence"]["topics"]=="Medium"
+    assert analytics["confidence"]["analysis_scope"]=="story_context"
+
+def test_learning_status_contract():
+    status=client.get("/api/learning/status")
+    assert status.status_code==200
+    assert {"human_labels","feedback_events","collected_comments"}<=status.json()["counts"].keys()
+
+def test_author_identifier_uses_keyed_privacy_hash():
+    value="public-user-123"
+    assert _hash_author(value)!=hashlib.sha256(f"updates-public-author:{value}".encode()).hexdigest()
+    assert _hash_author(value)==_hash_author(value)
+
+def test_security_headers_and_input_validation():
+    response=client.get("/api/topics/reservation-protest")
+    assert response.headers["x-content-type-options"]=="nosniff"
+    assert response.headers["x-frame-options"]=="DENY"
+    invalid=client.post("/api/stories",json={"title":"Unsafe story","category":"News","summary":"A sufficiently long test summary.","image":"javascript:alert(1)","topic_slug":"reservation-protest"})
+    assert invalid.status_code==422
+
+def test_oversized_request_is_rejected_before_parsing():
+    response=client.post("/api/classify",content=b"x"*1_000_001,headers={"content-type":"application/json"})
+    assert response.status_code==413

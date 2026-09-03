@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class SentimentAnalysis(BaseModel):
     sentiment: Literal["positive", "negative", "neutral", "mixed"]
@@ -32,6 +32,16 @@ class AIQuestion(BaseModel):
     topic_slug: str
     question: str = Field(min_length=2, max_length=500)
 
+class ChatQuestion(BaseModel):
+    message: str = Field(min_length=1,max_length=500)
+    topic_slug: str | None = Field(default=None,max_length=120)
+    page_path: str | None = Field(default=None,max_length=240)
+
+class ChatResponse(BaseModel):
+    answer: str
+    actions: list[dict[str,str]] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
 class AIResponse(BaseModel):
     answer: str
     evidence: list[str]
@@ -55,9 +65,15 @@ class StoryCreate(BaseModel):
     title: str = Field(min_length=4, max_length=300)
     category: str = Field(min_length=2, max_length=80)
     summary: str = Field(min_length=10, max_length=2000)
-    image: str
+    image: str = Field(max_length=500)
     topic_slug: str = "reservation-protest"
     is_live: bool = False
+
+    @field_validator("image")
+    @classmethod
+    def safe_image(cls,value:str)->str:
+        if value.startswith("/images/") or value.startswith(("https://","http://")):return value
+        raise ValueError("image must be an http(s) URL or a local /images/ asset")
 
 class TopicSummary(BaseModel):
     slug: str
@@ -98,3 +114,31 @@ class IngestionRequest(BaseModel):
     platforms: list[Literal["x","youtube","reddit","facebook","instagram"]]
     targets: dict[str,list[str]] = Field(default_factory=dict)
     max_items: int = Field(default=100,ge=1,le=1000)
+
+    @field_validator("platforms")
+    @classmethod
+    def unique_platforms(cls,value:list[str])->list[str]:
+        if not value:raise ValueError("at least one platform is required")
+        return list(dict.fromkeys(value))
+
+    @field_validator("targets")
+    @classmethod
+    def safe_targets(cls,value:dict[str,list[str]])->dict[str,list[str]]:
+        import re
+        allowed={"x","youtube","reddit","facebook","instagram"}
+        if any(key not in allowed for key in value):raise ValueError("unsupported target platform")
+        for targets in value.values():
+            if len(targets)>100 or any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,180}",target) for target in targets):raise ValueError("invalid external target identifier")
+        return value
+
+class TrainingLabelInput(BaseModel):
+    text:str=Field(min_length=2,max_length=10000)
+    sentiment:Literal["positive","negative","neutral"]|None=None
+    safety:Literal["normal","toxic","hate"]|None=None
+    stance:Literal["supportive","opposing","neutral","questioning"]|None=None
+    language:Literal["english","hindi","hinglish","other"]|None=None
+
+class LearningFeedbackInput(BaseModel):
+    context:str=Field(min_length=2,max_length=80)
+    action:str=Field(min_length=2,max_length=80)
+    reward:float=Field(ge=-1,le=1)

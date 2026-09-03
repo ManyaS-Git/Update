@@ -101,6 +101,25 @@ class IngestionJobRecord(Base):
     started_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
     completed_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
 
+class TrainingLabelRecord(Base):
+    __tablename__="training_labels"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True)
+    text:Mapped[str]=mapped_column(Text)
+    sentiment:Mapped[str|None]=mapped_column(String(30),nullable=True)
+    safety:Mapped[str|None]=mapped_column(String(30),nullable=True)
+    stance:Mapped[str|None]=mapped_column(String(30),nullable=True)
+    language:Mapped[str|None]=mapped_column(String(30),nullable=True)
+    source:Mapped[str]=mapped_column(String(60),default="human_review")
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
+
+class FeedbackRecord(Base):
+    __tablename__="learning_feedback"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True,autoincrement=True)
+    context:Mapped[str]=mapped_column(String(80))
+    action:Mapped[str]=mapped_column(String(80))
+    reward:Mapped[float]=mapped_column(Float)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
+
 settings=get_settings()
 connect_args={"check_same_thread":False} if settings.database_url.startswith("sqlite") else {}
 engine=create_engine(settings.database_url,connect_args=connect_args,pool_pre_ping=True)

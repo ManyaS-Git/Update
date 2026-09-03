@@ -78,30 +78,31 @@ def refresh_latest_news(db: Session, query: str = DEFAULT_QUERY, max_items: int 
     except (httpx.HTTPError,ValueError): provider,articles=_fetch_rss(query,max_items)
 
     existing_titles = set(db.scalars(select(StoryRecord.title)).all())
-    added = 0
+    added = 0;added_slugs=[]
     for article in articles:
         title = (article.get("title") or "").strip()
         if len(title) < 8 or title in existing_titles:
             continue
         slug = _slug(title)
+        domain = (article.get("domain") or "GDELT indexed source").strip()
+        category=_category(title)
         if not db.get(TopicRecord, slug):
             db.add(TopicRecord(
                 slug=slug, title=title, subtitle="Public sentiment & conversation analysis",
-                total_conversations=0, updated="Preview · awaiting comments", is_demo=True,
-                analytics_json=json.dumps(preview_analytics(title,_category(title))),
+                total_conversations=0, updated="Article context analysed · awaiting social sources", is_demo=True,
+                analytics_json=json.dumps(preview_analytics(title,category,domain)),
             ))
             db.flush()
-        domain = (article.get("domain") or "GDELT indexed source").strip()
-        category=_category(title);image = (article.get("socialimage") or _fallback_image(category)).strip()
+        image = (article.get("socialimage") or _fallback_image(category)).strip()
         if not image.startswith(("https://", "http://", "/")):
             image = "/images/real-data-check.jpg"
         db.add(StoryRecord(
             title=title, category=category, relative_time="Just now", image=image,
             is_live=False, topic_slug=slug,
-            summary=f"Recent coverage indexed from {domain}. Select this story to collect its comments and build story-specific intelligence.",
+            summary=f"Recent coverage indexed from {domain}. Article context is analysed immediately; public-reaction intelligence is enriched from approved social sources.",
             source_status=f"news:{domain}"[:80], published_at=_published(article.get("seendate")),
         ))
         existing_titles.add(title)
-        added += 1
+        added += 1;added_slugs.append(slug)
     db.commit()
-    return {"provider":provider,"received":len(articles),"added":added,"query":query}
+    return {"provider":provider,"received":len(articles),"added":added,"query":query,"added_topic_slugs":added_slugs}

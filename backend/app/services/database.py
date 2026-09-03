@@ -17,10 +17,13 @@ def empty_analytics()->dict:
         "brief":{"insight":"","what_changed":"","what_is_rising":"","what_to_watch":""},
     }
 
-def preview_analytics(title:str,category:str)->dict:
-    """Story-specific, clearly disclosed preview values; never counted as comments."""
-    digest=hashlib.sha256(f"{title}:{category}".encode()).digest()
-    negative=30+digest[0]%22;neutral=24+digest[1]%15;positive=100-negative-neutral
+def preview_analytics(title:str,category:str,source:str="Story metadata")->dict:
+    """Immediate story-context analysis; never represented as measured public opinion."""
+    lowered=title.lower();negative_terms=("protest","crisis","clash","killed","attack","fraud","ban","fall","decline","threat","dispute","anger");positive_terms=("win","growth","support","improve","launch","success","agreement","relief","record")
+    negative_hits=sum(term in lowered for term in negative_terms);positive_hits=sum(term in lowered for term in positive_terms)
+    if negative_hits>positive_hits:negative,neutral,positive=58,34,8
+    elif positive_hits>negative_hits:negative,neutral,positive=9,33,58
+    else:negative,neutral,positive=18,64,18
     themes={
         "Laws":["Court proceedings","Legal framework","Policy impact","Public rights"],
         "Education":["Students","Access to education","Campus response","Admissions"],
@@ -29,17 +32,16 @@ def preview_analytics(title:str,category:str)->dict:
         "Analysis":["Evidence quality","Claims and facts","Policy outcomes","Public understanding"],
         "Environment":["Environmental impact","Public health","Policy response","Community action"],
     }.get(category,["Public response","Policy impact","Community concerns","Developing story"])
-    base=35+digest[2]%20
-    trends=[{"time":label,"volume":base+step*(4+digest[3]%4),"negative":negative} for step,label in enumerate(["Start","+1h","+2h","+3h","+4h","Preview"])]
+    trends=[{"time":"Published","volume":1,"negative":negative}]
     drivers=[{"title":theme,"description":f"Potential discussion around {theme.lower()} in the context of “{title}”.","status":status} for theme,status in zip(themes,["TOP_CONCERN","RISING","RISING","STABLE"])]
     nodes=[{"id":f"preview-{index}","label":theme,"centrality":round(.52+index*.07,2)} for index,theme in enumerate(themes)]
     return {
         "sentiment":{"negative":negative,"neutral":neutral,"positive":positive,"change_last_6h":0,"qualified_conversations":0},
-        "audience":{"geography":{"value":"Awaiting explicit location evidence"},"language":{"distribution":{"English source text":100}},"age_bracket":{"value":"","confidence":"Unavailable"},"interest_groups":themes[:2],"key_topics":themes,"leading_platform":"Awaiting source collection"},
+        "audience":{"geography":{"value":"Not provided by article metadata","confidence":"Unavailable","coverage":0,"provenance":"No social profile location collected"},"language":{"distribution":{"English headline":100},"confidence":"High","provenance":"Detected from the indexed headline"},"age_bracket":{"value":"Not provided by article metadata","confidence":"Unavailable","coverage":0,"provenance":"Age is never inferred from a headline"},"interest_groups":themes[:2],"key_topics":themes,"leading_platform":f"News source · {source}","confidence":{"interests":"Medium","topics":"Medium","platform":"High"},"provenance":{"interests":"Headline/category theme extraction","topics":"Headline/category theme extraction","platform":"Indexed article source"}},
         "trends":trends,"drivers":drivers,"voices":[],
         "network":{"nodes":nodes,"edges":[{"source":nodes[i]["id"],"target":nodes[i+1]["id"],"weight":1} for i in range(len(nodes)-1)]},
-        "confidence":{"level":"Low","sources":["Story metadata preview"],"qualified_conversations":0,"low_signal_excluded_or_downweighted":0,"disclaimer":"Illustrative story-context preview; not measured public opinion."},
-        "brief":{"insight":f"Story-context preview: conversation around “{title}” may focus on {', '.join(theme.lower() for theme in themes[:3])}. These are illustrative signals, not measured public reactions.","what_changed":"Awaiting collected comments.","what_is_rising":"Awaiting collected comments.","what_to_watch":themes[0]},
+        "confidence":{"level":"Low","sources":[source],"qualified_conversations":0,"low_signal_excluded_or_downweighted":0,"analysis_scope":"story_context","disclaimer":"Headline and article-source analysis only; not measured public opinion."},
+        "brief":{"insight":f"Immediate article-context analysis: “{title}” is primarily associated with {', '.join(theme.lower() for theme in themes[:3])}. Public-reaction metrics will replace this layer after approved social comments are collected.","what_changed":"Newly indexed story; social enrichment queued.","what_is_rising":"Awaiting time-series comments.","what_to_watch":themes[0]},
     }
 
 def init_database()->None:
