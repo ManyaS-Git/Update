@@ -34,8 +34,15 @@ async def run_auto_ingestion(max_topics:int|None=None)->dict:
     async with _lock:
         settings=get_settings();platforms=configured_platforms();_state.update(status="running",last_started=datetime.now(timezone.utc).isoformat(),topics_processed=0,comments_stored=0,errors={})
         if not platforms:
-            _state.update(status="blocked",last_completed=datetime.now(timezone.utc).isoformat(),errors={"credentials":"No configured official social connectors"})
+            with SessionLocal() as db:
+                try:
+                    from app.services.news import refresh_latest_news
+                    res = refresh_latest_news(db, max_items=8)
+                    _state.update(status="completed", last_completed=datetime.now(timezone.utc).isoformat(), topics_processed=res.get("added", 0))
+                except Exception as e:
+                    _state.update(status="blocked", last_completed=datetime.now(timezone.utc).isoformat(), errors={"credentials": f"No configured official social connectors; news refresh: {e}"})
             return automation_status()
+
         with SessionLocal() as db:
             limit=max_topics or settings.auto_ingestion_max_topics
             rows=db.scalars(select(StoryRecord).order_by(StoryRecord.published_at.desc()).limit(limit*3)).all();stories=[];seen=set()
@@ -52,8 +59,11 @@ async def run_auto_ingestion(max_topics:int|None=None)->dict:
         return automation_status()
 
 
-async def auto_ingestion_loop()->None:
-    settings=get_settings()
+async def auto_ingestion_loop() -> None:
+    settings = get_settings()
+    # Initial pause so startup and test initialization complete without blocking
+    await asyncio.sleep(max(10, settings.auto_ingestion_interval_minutes * 60))
     while True:
         await run_auto_ingestion()
-        await asyncio.sleep(max(60,settings.auto_ingestion_interval_minutes*60))
+        await asyncio.sleep(max(60, settings.auto_ingestion_interval_minutes * 60))
+

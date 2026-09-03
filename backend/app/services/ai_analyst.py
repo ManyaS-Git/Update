@@ -1,22 +1,21 @@
+from __future__ import annotations
 from typing import Protocol
+from sqlalchemy.orm import Session
+from app.models.database import SessionLocal
 from app.models.schemas import AIResponse
+from app.services.rag_analyst import ask_rag_analyst
 
 class AIProvider(Protocol):
-    def answer(self, question: str) -> AIResponse: ...
+    def answer(self, question: str, topic_slug: str = "general") -> AIResponse: ...
 
-class MockAIProvider:
-    def answer(self, question: str) -> AIResponse:
-        lowered=question.lower()
-        if "hour" in lowered or "changed" in lowered:
-            answer="Conversation volume rose 18% and opposing sentiment increased by 8 percentage points in the last 6 hours. Education & Admissions is rising fastest."
-        elif "platform" in lowered:
-            answer="X is the largest observed source in the seeded dataset, with YouTube and Telegram contributing additional qualified discussion."
-        elif "active" in lowered or "audience" in lowered:
-            answer="Student communities and job aspirants are the most active inferred interest groups. The likely dominant age bracket is 18–24, with medium confidence."
-        else:
-            answer="The protest is gaining attention because fairness, access to education and employment implications are converging across student and policy-discussion communities."
-        return AIResponse(answer=answer,evidence=["28,410 qualified conversations","6,281 low-signal items excluded or down-weighted","X, YouTube, Telegram and Reddit demo sources"],confidence="High",last_updated="2 min ago",provider="mock")
+class GroundedRAGProvider:
+    def answer(self, question: str, topic_slug: str = "general") -> AIResponse:
+        with SessionLocal() as db:
+            return ask_rag_analyst(db, topic_slug, question)
 
 class AIAnalystService:
-    def __init__(self, provider: AIProvider | None = None): self.provider=provider or MockAIProvider()
-    def ask(self, question: str) -> AIResponse: return self.provider.answer(question)
+    def __init__(self, provider: AIProvider | None = None):
+        self.provider = provider or GroundedRAGProvider()
+
+    def ask(self, question: str, topic_slug: str = "general") -> AIResponse:
+        return self.provider.answer(question, topic_slug=topic_slug)

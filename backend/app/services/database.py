@@ -1,86 +1,94 @@
 import json
-import hashlib
+import logging
 from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.data.seed import reservation
-from app.data.seed.stories import STORIES
-from app.models.database import Base,BookmarkRecord,PreferenceRecord,StoryRecord,TopicRecord,engine
+from app.models.database import (
+    Base,
+    BookmarkRecord,
+    PreferenceRecord,
+    StoryRecord,
+    TopicRecord,
+    NarrativeRecord,
+    engine,
+    SessionLocal,
+)
 
-def empty_analytics()->dict:
-    """A complete dashboard contract with no invented measurements."""
+logger = logging.getLogger("updates.database")
+
+def empty_analytics(title: str = "Narrative") -> dict:
+    """A clean contract with no invented measurements."""
     return {
-        "sentiment":{"negative":0,"neutral":0,"positive":0,"change_last_6h":0,"qualified_conversations":0},
-        "audience":{"geography":{"value":""},"language":{"distribution":{}},"age_bracket":{"value":"","confidence":"Unavailable"},"interest_groups":[],"key_topics":[],"leading_platform":""},
-        "trends":[],"drivers":[],"voices":[],"network":{"nodes":[],"edges":[]},
-        "confidence":{"level":"Awaiting data","sources":[],"qualified_conversations":0,"low_signal_excluded_or_downweighted":0},
-        "brief":{"insight":"","what_changed":"","what_is_rising":"","what_to_watch":""},
+        "sentiment": {"negative": 0, "neutral": 0, "positive": 0, "change_last_6h": 0, "qualified_conversations": 0},
+        "audience": {
+            "geography": {"value": "Awaiting collected location signals"},
+            "language": {"distribution": {}},
+            "age_bracket": {"value": "Not available from public source metadata", "confidence": "Unavailable"},
+            "interest_groups": [],
+            "key_topics": [],
+            "leading_platform": "Awaiting streaming data",
+        },
+        "trends": [],
+        "drivers": [],
+        "voices": [],
+        "network": {"nodes": [], "edges": []},
+        "confidence": {"level": "Awaiting data", "sources": [], "qualified_conversations": 0, "low_signal_excluded_or_downweighted": 0},
+        "brief": {"insight": f"Analysis for “{title}” will update as live signals enter the pipeline.", "what_changed": "Awaiting data.", "what_is_rising": "", "what_to_watch": ""},
     }
 
-def preview_analytics(title:str,category:str)->dict:
-    """Story-specific, clearly disclosed preview values; never counted as comments."""
-    digest=hashlib.sha256(f"{title}:{category}".encode()).digest()
-    negative=30+digest[0]%22;neutral=24+digest[1]%15;positive=100-negative-neutral
-    themes={
-        "Laws":["Court proceedings","Legal framework","Policy impact","Public rights"],
-        "Education":["Students","Access to education","Campus response","Admissions"],
-        "Protest":["Public mobilisation","Demands","Civic response","Daily disruption"],
-        "Foreign Affairs":["Diplomacy","International response","Policy positioning","Regional impact"],
-        "Analysis":["Evidence quality","Claims and facts","Policy outcomes","Public understanding"],
-        "Environment":["Environmental impact","Public health","Policy response","Community action"],
-    }.get(category,["Public response","Policy impact","Community concerns","Developing story"])
-    base=35+digest[2]%20
-    trends=[{"time":label,"volume":base+step*(4+digest[3]%4),"negative":negative} for step,label in enumerate(["Start","+1h","+2h","+3h","+4h","Preview"])]
-    drivers=[{"title":theme,"description":f"Potential discussion around {theme.lower()} in the context of “{title}”.","status":status} for theme,status in zip(themes,["TOP_CONCERN","RISING","RISING","STABLE"])]
-    nodes=[{"id":f"preview-{index}","label":theme,"centrality":round(.52+index*.07,2)} for index,theme in enumerate(themes)]
-    return {
-        "sentiment":{"negative":negative,"neutral":neutral,"positive":positive,"change_last_6h":0,"qualified_conversations":0},
-        "audience":{"geography":{"value":"Awaiting explicit location evidence"},"language":{"distribution":{"English source text":100}},"age_bracket":{"value":"","confidence":"Unavailable"},"interest_groups":themes[:2],"key_topics":themes,"leading_platform":"Awaiting source collection"},
-        "trends":trends,"drivers":drivers,"voices":[],
-        "network":{"nodes":nodes,"edges":[{"source":nodes[i]["id"],"target":nodes[i+1]["id"],"weight":1} for i in range(len(nodes)-1)]},
-        "confidence":{"level":"Low","sources":["Story metadata preview"],"qualified_conversations":0,"low_signal_excluded_or_downweighted":0,"disclaimer":"Illustrative story-context preview; not measured public opinion."},
-        "brief":{"insight":f"Story-context preview: conversation around “{title}” may focus on {', '.join(theme.lower() for theme in themes[:3])}. These are illustrative signals, not measured public reactions.","what_changed":"Awaiting collected comments.","what_is_rising":"Awaiting collected comments.","what_to_watch":themes[0]},
-    }
+def preview_analytics(title: str, category: str = "Analysis") -> dict:
+    return empty_analytics(title)
 
-def init_database()->None:
+def init_database() -> None:
+
+    """Initializes tables cleanly."""
     Base.metadata.create_all(bind=engine)
-    from app.models.database import SessionLocal
     with SessionLocal() as db:
-        if not db.get(TopicRecord,reservation.TOPIC["slug"]):
-            analytics={"sentiment":reservation.SENTIMENT,"audience":reservation.AUDIENCE,"trends":reservation.TRENDS,"drivers":reservation.DRIVERS,"voices":reservation.VOICES,"network":reservation.NETWORK,"confidence":reservation.CONFIDENCE,"brief":reservation.BRIEF}
-            db.add(TopicRecord(slug=reservation.TOPIC["slug"],title=reservation.TOPIC["title"],subtitle=reservation.TOPIC["subtitle"],total_conversations=reservation.TOPIC["total_conversations"],updated=reservation.TOPIC["updated"],is_demo=True,analytics_json=json.dumps(analytics)))
-            db.flush()
-        for story in STORIES:
-            slug=story["topic_slug"]
-            if not db.get(TopicRecord,slug):
-                db.add(TopicRecord(slug=slug,title=story["title"],subtitle="Public sentiment & conversation analysis",total_conversations=0,updated="Preview · awaiting comments",is_demo=True,analytics_json=json.dumps(preview_analytics(story["title"],story["category"]))))
-        db.flush()
-        existing={item.title:item for item in db.scalars(select(StoryRecord)).all()}
-        for story in STORIES:
-            values=dict(story);slug=values.pop("topic_slug")
-            if story["title"] in existing:
-                existing[story["title"]].topic_slug=slug
-            else:
-                db.add(StoryRecord(topic_slug=slug,**values))
-        db.flush()
-        for topic in db.scalars(select(TopicRecord).where(TopicRecord.total_conversations==0)).all():
-            story=db.scalar(select(StoryRecord).where(StoryRecord.topic_slug==topic.slug).order_by(StoryRecord.published_at.desc()))
-            if story:
-                topic.analytics_json=json.dumps(preview_analytics(story.title,story.category));topic.updated="Preview · awaiting comments";topic.is_demo=True
-        if not db.get(PreferenceRecord,"notifications_enabled"):
-            db.add(PreferenceRecord(key="notifications_enabled",value="false"))
-        db.commit()
+        if not db.get(PreferenceRecord, "notifications_enabled"):
+            db.add(PreferenceRecord(key="notifications_enabled", value="false"))
+            db.commit()
 
-def relative_time(value:datetime|None,fallback:str)->str:
-    if not value:return fallback
-    if value.tzinfo is None:value=value.replace(tzinfo=timezone.utc)
-    seconds=max(0,int((datetime.now(timezone.utc)-value).total_seconds()))
-    if seconds<60:return "Just now"
-    if seconds<3600:return f"{seconds//60}m ago"
-    if seconds<86400:return f"{seconds//3600}h ago"
-    return f"{seconds//86400}d ago"
+def bootstrap_live_data() -> None:
+    """Bootstraps live news in background if database is empty."""
+    with SessionLocal() as db:
+        story_count = len(db.scalars(select(StoryRecord.id).limit(1)).all())
+        if story_count == 0:
+            try:
+                from app.services.news import refresh_latest_news
+                logger.info("Initializing database with live public news feed...")
+                refresh_latest_news(db, max_items=12)
+            except Exception as e:
+                logger.warning(f"Could not bootstrap initial live news: {e}")
 
-def story_dict(story:StoryRecord,bookmarked:bool=False)->dict:
-    return {"id":str(story.id),"title":story.title,"category":story.category,"time":relative_time(story.published_at,story.relative_time),"published_at":story.published_at,"image":story.image,"live":story.is_live,"topic_slug":story.topic_slug,"summary":story.summary,"source_status":story.source_status,"bookmarked":bookmarked}
 
-def bookmarked_ids(db:Session)->set[int]: return set(db.scalars(select(BookmarkRecord.story_id)).all())
+def relative_time(value: datetime | None, fallback: str) -> str:
+    if not value:
+        return fallback
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    seconds = max(0, int((datetime.now(timezone.utc) - value).total_seconds()))
+    if seconds < 60:
+        return "Just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+def story_dict(story: StoryRecord, bookmarked: bool = False) -> dict:
+    return {
+        "id": str(story.id),
+        "title": story.title,
+        "category": story.category,
+        "time": relative_time(story.published_at, story.relative_time),
+        "published_at": story.published_at.isoformat() if story.published_at else None,
+        "image": story.image,
+        "live": story.is_live,
+        "topic_slug": story.topic_slug,
+        "summary": story.summary,
+        "source_status": story.source_status,
+        "bookmarked": bookmarked,
+    }
+
+def bookmarked_ids(db: Session) -> set[int]:
+    return set(db.scalars(select(BookmarkRecord.story_id)).all())

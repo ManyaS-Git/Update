@@ -1,6 +1,89 @@
 export type SentimentKey = "negative" | "neutral" | "positive";
-export interface Story { id:string; title:string; category:string; time:string; published_at?:string; image:string; imagePosition?:string; live?:boolean; summary?:string; topic_slug?:string; source_status?:string; bookmarked?:boolean }
-export interface TrendPoint { time:string; volume:number; sentiment:number }
-export interface Driver { title:string; description:string; status:"Top concern"|"Rising"|"Stable" }
-export interface PublicVoice { quote:string; label:string; tone:"supporting"|"concerned"|"neutral" }
-export interface Topic { slug:string; title:string; subtitle:string; image?:string; category?:string; preview?:boolean; totalConversations:number; updated:string; sentiment:Record<SentimentKey,number>; sentimentChange:number; insight:string; audience:{geography:string;language:string;age:string;ageConfidence:string;interests:string;topics:string[];platform:string}; drivers:Driver[]; voices:PublicVoice[]; trends:TrendPoint[]; confidence:{sources:string[];qualified:number;lowSignal:number;level:string}; network:{nodes:{id:string;label:string;group:string;size:number}[];edges:{source:string;target:string;weight:number}[]}; }
+
+export interface Story {
+  id: string;
+  title: string;
+  category: string;
+  time: string;
+  published_at?: string;
+  image: string;
+  imagePosition?: string;
+  live?: boolean;
+  summary?: string;
+  topic_slug?: string;
+  source_status?: string;
+  bookmarked?: boolean;
+}
+
+export interface TrendPoint {
+  time: string;
+  volume: number;
+  sentiment: number;
+}
+
+export interface Driver {
+  title: string;
+  description: string;
+  status: "Top concern" | "Rising" | "Stable";
+}
+
+export interface PublicVoice {
+  quote: string;
+  label: string;
+  tone: "supporting" | "concerned" | "neutral";
+}
+
+export interface Topic {
+  slug: string;
+  title: string;
+  subtitle: string;
+  image?: string;
+  category?: string;
+  preview?: boolean;
+  totalConversations: number;
+  updated: string;
+  sentiment: Record<SentimentKey, number>;
+  sentimentChange: number;
+  insight: string;
+  audience: {
+    geography: string;
+    language: string;
+    age: string;
+    ageConfidence: string;
+    interests: string;
+    topics: string[];
+    platform: string;
+  };
+  drivers: Driver[];
+  voices: PublicVoice[];
+  trends: TrendPoint[];
+  confidence: {
+    sources: string[];
+    qualified: number;
+    lowSignal: number;
+    level: string;
+  };
+  network: {
+    nodes: { id: string; label: string; group: string; size: number }[];
+    edges: { source: string; target: string; weight: number }[];
+  };
+}
+
+export interface SocialPost {
+  id: string;
+  platform: string;
+  author: string;
+  author_id?: string;
+  content: string;
+  timestamp: string;
+  published_at?: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  views?: number;
+  is_verified: boolean;
+  topic_slug?: string;
+  sentiment?: "positive" | "negative" | "neutral";
+  sentiment_confidence?: number;
+  url?: string;
+}

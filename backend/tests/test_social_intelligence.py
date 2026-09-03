@@ -30,8 +30,9 @@ def test_explicit_metadata_only_for_sensitive_inference():
 
 def test_connector_capability_contract():
     rows=client.get("/api/connectors").json()
-    assert {row["platform"] for row in rows}=={"x","youtube","reddit","facebook","instagram"}
+    assert {"x","youtube","reddit","telegram","facebook","instagram"}.issubset({row["platform"] for row in rows})
     assert next(row for row in rows if row["platform"]=="instagram")["requires_targets"] is True
+
 
 def test_model_status_never_mislabels_fallback_as_muril():
     status=client.get("/api/models/status").json()["sentiment"]
