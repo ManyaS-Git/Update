@@ -2,6 +2,11 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.intelligence import CommentIntelligenceService
 from app.models.schemas import CommentInput
+from app.services.database import preview_analytics
+from app.services.ingestion import _hash_author
+from app.services.csqe import CSQEService
+from app.collectors.adapters import RedditCollector
+import hashlib
 
 client=TestClient(app)
 
@@ -30,9 +35,8 @@ def test_explicit_metadata_only_for_sensitive_inference():
 
 def test_connector_capability_contract():
     rows=client.get("/api/connectors").json()
-    assert {"x","youtube","reddit","telegram","facebook","instagram"}.issubset({row["platform"] for row in rows})
+    assert {row["platform"] for row in rows}=={"x","youtube","reddit","facebook","instagram"}
     assert next(row for row in rows if row["platform"]=="instagram")["requires_targets"] is True
-
 
 def test_model_status_never_mislabels_fallback_as_muril():
     status=client.get("/api/models/status").json()["sentiment"]
@@ -47,7 +51,48 @@ def test_signal_quality_is_returned_with_classification():
     assert low["signal_classification"]=="LOW_SIGNAL"
     assert high["signal_quality"]>low["signal_quality"]
 
+def test_signal_quality_uses_dynamic_story_context_not_reservation_terms():
+    engine=CSQEService()
+    relevant=engine.qualify("The cyclone warning affects coastal Odisha districts and fishing communities.","Odisha cyclone warning and coastal evacuation")
+    unrelated=engine.qualify("The reservation policy affects college admission seats.","Odisha cyclone warning and coastal evacuation")
+    assert relevant.signal_quality>unrelated.signal_quality
+
+def test_normalized_platform_contract_preserves_optional_real_fields():
+    item=RedditCollector().normalize({"id":"abc","text":"Public post","created_at":"2026-01-01T00:00:00Z","author_id":"u1","author_name":"PublicUser","language":"en","url":"https://www.reddit.com/r/news/comments/abc","is_verified":False,"hashtags":["news"],"mentions":[],"engagement":{"likes":4,"comments":2,"views":10}},"topic")
+    assert item.author_name=="PublicUser" and item.url and item.language=="en"
+    assert item.engagement["views"]==10
+
 def test_comment_summary_has_privacy_disclosure():
     summary=client.get("/api/comments/summary").json()
     assert "not guessed" in summary["disclosure"]
     assert "signal_quality" in summary
+
+def test_new_story_context_is_complete_and_evidence_scoped():
+    analytics=preview_analytics("Students protest new education policy","Education","Example News")
+    assert analytics["brief"]["insight"]
+    assert analytics["drivers"] and analytics["trends"]
+    assert analytics["audience"]["language"]["confidence"]=="High"
+    assert analytics["audience"]["geography"]["confidence"]=="Unavailable"
+    assert analytics["audience"]["confidence"]["topics"]=="Medium"
+    assert analytics["confidence"]["analysis_scope"]=="story_context"
+
+def test_learning_status_contract():
+    status=client.get("/api/learning/status")
+    assert status.status_code==200
+    assert {"human_labels","feedback_events","collected_comments"}<=status.json()["counts"].keys()
+
+def test_author_identifier_uses_keyed_privacy_hash():
+    value="public-user-123"
+    assert _hash_author(value)!=hashlib.sha256(f"updates-public-author:{value}".encode()).hexdigest()
+    assert _hash_author(value)==_hash_author(value)
+
+def test_security_headers_and_input_validation():
+    response=client.get("/api/topics/reservation-protest")
+    assert response.headers["x-content-type-options"]=="nosniff"
+    assert response.headers["x-frame-options"]=="DENY"
+    invalid=client.post("/api/stories",json={"title":"Unsafe story","category":"News","summary":"A sufficiently long test summary.","image":"javascript:alert(1)","topic_slug":"reservation-protest"})
+    assert invalid.status_code==422
+
+def test_oversized_request_is_rejected_before_parsing():
+    response=client.post("/api/classify",content=b"x"*1_000_001,headers={"content-type":"application/json"})
+    assert response.status_code==413

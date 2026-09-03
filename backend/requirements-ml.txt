@@ -3,3 +3,4 @@
 transformers>=4.55,<5
 torch>=2.8
 safetensors>=0.6
+scikit-learn>=1.6,<2

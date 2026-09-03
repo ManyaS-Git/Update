@@ -6,9 +6,11 @@ __pycache__/
 .pytest_cache/
 .venv/
 .hf-cache/
+backend/data/raw/
+backend/data/artifacts/
+backend/data/experiments/
 *.py[cod]
 *.db
 .DS_Store
 .idea/
 .vscode/
-*.tsbuildinfo

@@ -20,6 +20,7 @@ class MuRILSentimentProvider:
     _lock=threading.Lock()
     _last_active="not_loaded"
     _last_error:str|None=None
+    _trained_model=None
     def __init__(self,settings:Settings|None=None):
         self.settings=settings or get_settings();self.last_error:str|None=None
         os.environ.setdefault("HF_HUB_DISABLE_XET","1");os.environ.setdefault("HF_HOME",self.settings.hf_model_cache)
@@ -40,6 +41,16 @@ class MuRILSentimentProvider:
             except Exception as exc:
                 self.last_error=f"local MuRIL unavailable: {exc}";MuRILSentimentProvider._last_error=self.last_error
                 if provider=="local":raise
+        if provider=="auto":
+            try:
+                path=os.path.join(self.settings.trained_model_dir,"sentiment.joblib")
+                if os.path.exists(path):
+                    if MuRILSentimentProvider._trained_model is None:
+                        from joblib import load
+                        MuRILSentimentProvider._trained_model=load(path)
+                    probabilities=MuRILSentimentProvider._trained_model.predict_proba([text])[0];index=int(probabilities.argmax());label=str(MuRILSentimentProvider._trained_model.classes_[index]);score=float(probabilities[index]);MuRILSentimentProvider._last_active="validated_cpu_fallback";return SentimentPrediction(label,score,"updates-supervised-sentiment-v1")
+            except Exception as exc:
+                self.last_error=f"trained fallback unavailable: {exc}";MuRILSentimentProvider._last_error=self.last_error
         if provider in {"auto","endpoint"} and self.settings.hf_inference_endpoint_url:
             try:
                 headers={"Authorization":f"Bearer {self.settings.hf_token}"} if self.settings.hf_token else {}
@@ -139,7 +150,7 @@ def influence(engagement:dict[str,int])->tuple[float,list[str]]:
 class CommentIntelligenceService:
     def __init__(self,settings:Settings|None=None):self.sentiment=MuRILSentimentProvider(settings);self.safety=MuRILSafetyProvider(settings);self.csqe=CSQEService()
     def analyse(self,item:CommentInput)->CommentIntelligence:
-        prediction=self.sentiment.predict(item.text);language,lang_conf,lang_ev=detect_language(item.text);stance,stance_conf,stance_ev=classify_stance(item.text,item.context);safety_prediction=self.safety.predict(item.text);safety,safety_conf,safety_ev=safety_prediction.label,safety_prediction.score,safety_prediction.evidence;interest_labels,interest_ev=interests(item.text,item.public_signals);influence_score,influence_ev=influence(item.engagement);signal=self.csqe.qualify(item.text)
+        prediction=self.sentiment.predict(item.text);language,lang_conf,lang_ev=detect_language(item.text);stance,stance_conf,stance_ev=classify_stance(item.text,item.context);safety_prediction=self.safety.predict(item.text);safety,safety_conf,safety_ev=safety_prediction.label,safety_prediction.score,safety_prediction.evidence;interest_labels,interest_ev=interests(item.text,item.public_signals);influence_score,influence_ev=influence(item.engagement);signal=self.csqe.qualify(item.text,item.context)
         geography=item.public_signals.get("location") or None;age=item.public_signals.get("age_bracket") or None
         return CommentIntelligence(sentiment=prediction.label,sentiment_score=prediction.score,stance=stance,emotion="support" if stance=="supportive" else "concern" if stance=="opposing" else "questioning" if stance=="questioning" else "uncertain",safety=safety,language=language,interests=interest_labels,geography=geography,age_bracket=age,influence_score=influence_score,confidence={"sentiment":round(prediction.score,3),"language":lang_conf,"stance":stance_conf,"safety":safety_conf,"geography":.88 if geography else 0,"age":.75 if age else 0,"interests":min(.9,.45+.1*len(interest_labels)),"influence":.9,"signal_quality":signal.signal_quality},evidence={"language":lang_ev,"stance":stance_ev,"safety":safety_ev,"interests":interest_ev,"influence":influence_ev,"geography":["public profile/record metadata"] if geography else ["not inferred without explicit public evidence"],"age":["explicit broad age metadata"] if age else ["not inferred from writing style"],"signal_quality":[signal.reason]},model_name=prediction.model,safety_model_name=safety_prediction.model,signal_quality=signal.signal_quality,signal_classification=signal.classification)
 

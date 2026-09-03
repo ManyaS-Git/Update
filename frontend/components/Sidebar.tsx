@@ -1,8 +1,7 @@
 "use client";
 import Link from "next/link";
-import {useEffect,useState} from "react";
-import {Bell, Bookmark, DatabaseZap, House, LifeBuoy, Radio, Settings} from "lucide-react";
+import {Bookmark, DatabaseZap, Grid2X2, HelpCircle, House, Radio, Settings, Star, UserRound} from "lucide-react";
 import {Logo} from "./Logo";
-import {getPreferences,setNotifications} from "@/lib/api";
-const items=[{label:"Home",icon:House,href:"/"},{label:"Live",icon:Radio,href:"/live"},{label:"Saved",icon:Bookmark,href:"/saved"},{label:"Sources",icon:DatabaseZap,href:"/sources"},{label:"Help & Guide",icon:LifeBuoy,href:"/help"},{label:"Settings",icon:Settings,href:"/settings"}];
-export function Sidebar({active="Home"}:{active?:string}){const [enabled,setEnabled]=useState(false);useEffect(()=>{getPreferences().then(x=>setEnabled(x.notifications_enabled)).catch(()=>setEnabled(localStorage.getItem("updates-notifications")==="true"))},[]);async function toggle(){const next=!enabled;setEnabled(next);localStorage.setItem("updates-notifications",String(next));try{await setNotifications(next)}catch{}}return <aside className="sidebar"><Link href="/" aria-label="UPDATES home"><Logo/></Link><nav>{items.map(({label,icon:Icon,href})=><Link className={active===label?"active":""} href={href} key={label}><Icon size={19}/><span>{label}</span></Link>)}</nav><div className="notify-card"><Bell size={21}/><strong>{enabled?"Notifications enabled":"Stay Informed."}<em>{enabled?"":" Stay Ahead."}</em></strong><p>{enabled?"You will see real-time update alerts.":"Enable notifications for real-time updates."}</p><button onClick={toggle}>{enabled?"Disable":"Enable Now"}</button></div></aside>}
+import {Chatbot} from "./Chatbot";
+const items=[{label:"Home",icon:House,href:"/"},{label:"Live",icon:Radio,href:"/live"},{label:"Top Stories",icon:Star,href:"/#stories"},{label:"Saved",icon:Bookmark,href:"/saved"},{label:"Categories",icon:Grid2X2,href:"/#categories"},{label:"My Feed",icon:UserRound,href:"/feed"},{label:"Sources",icon:DatabaseZap,href:"/sources"},{label:"Help & Guide",icon:HelpCircle,href:"/help"},{label:"Settings",icon:Settings,href:"/settings"}];
+export function Sidebar({active="Home"}:{active?:string}){return <aside className="sidebar"><Link href="/" aria-label="UPDATES home"><Logo/></Link><nav>{items.map(({label,icon:Icon,href})=><Link className={active===label?"active":""} href={href} key={label}><Icon size={19}/><span>{label}</span></Link>)}</nav><Chatbot/></aside>}

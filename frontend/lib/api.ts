@@ -1,543 +1,79 @@
-import type {
-  Driver,
-  PublicVoice,
-  Story,
-  Topic,
-  TrendPoint,
-  SocialPost,
-  InsightCard,
-  ModelTransparencyItem,
-  IntelligenceBrief,
-  PropagationData,
-} from "@/types";
+import {reservationTopic} from "./demo-data";
+import type {Driver,PublicVoice,Story,Topic,TrendPoint} from "@/types";
 
-export const CLIENT_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API_URL=process.env.NEXT_PUBLIC_API_URL;
+export const CLIENT_API_URL=process.env.NEXT_PUBLIC_API_URL??"http://127.0.0.1:8001";
+const titleCase=(value:string)=>value.toLowerCase().replace(/(^|_)(\w)/g,(_,space,letter)=>`${space?" ":""}${letter.toUpperCase()}`);
 
-const CANDIDATE_BASE_URLS = [
-  process.env.NEXT_PUBLIC_API_URL,
-  "http://127.0.0.1:8000",
-  "http://localhost:8000",
-  "http://127.0.0.1:8001",
-  "http://localhost:8001",
-].filter(Boolean) as string[];
-
-let activeApiUrl: string = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-
-export async function resilientFetch(path: string, init?: RequestInit): Promise<Response> {
-  // Try candidate URLs starting with current activeApiUrl
-  const urlsToTry = [
-    activeApiUrl,
-    ...CANDIDATE_BASE_URLS.filter((u) => u !== activeApiUrl),
-  ];
-
-  let lastError: unknown = null;
-  for (const baseUrl of urlsToTry) {
-    try {
-      const response = await fetch(`${baseUrl}${path}`, init);
-      activeApiUrl = baseUrl;
-      return response;
-    } catch (err) {
-      lastError = err;
-      continue;
-    }
-  }
-  throw lastError || new Error(`Could not reach API server for ${path}`);
-}
-
-const titleCase = (value: string) =>
-  value.toLowerCase().replace(/(^|_)(\w)/g, (_, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
-
-const slugToTitle = (slug: string) =>
-  slug.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-/** Clean placeholder schema when awaiting data collection — no hardcoded demo values. */
-export function buildBlankTopic(slug: string, title?: string): Topic {
-  const effectiveTitle = title || slugToTitle(slug);
-  return {
-    slug,
-    title: effectiveTitle,
-    subtitle: "Real-time conversation intelligence",
-    preview: true,
-    totalConversations: 0,
-    updated: "Awaiting stream signals",
-    sentiment: { negative: 0, neutral: 0, positive: 0 },
-    sentimentChange: 0,
-    insight: `Intelligence for “${effectiveTitle}” will dynamically populate as live social and news streams enter the pipeline.`,
-    audience: {
-      geography: "Awaiting live location signals",
-      language: "Awaiting streaming data",
-      age: "Not available from public metadata",
-      ageConfidence: "Unavailable",
-      interests: "Awaiting keyword clustering",
-      topics: [],
-      platform: "Awaiting live connector data",
-    },
-    drivers: [],
-    voices: [],
-    trends: [],
-    confidence: {
-      sources: [],
-      qualified: 0,
-      lowSignal: 0,
-      level: "Awaiting Data",
-    },
-    network: { nodes: [], edges: [] },
-  };
-}
-
-async function getJson<T>(path: string): Promise<T> {
-  const response = await resilientFetch(path, { cache: "no-store" });
-  if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+async function getJson<T>(path:string):Promise<T>{
+  if(!API_URL)throw new Error("API URL is not configured");
+  const response=await fetch(`${API_URL}${path}`,{cache:"no-store"});
+  if(!response.ok)throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
 }
 
-type Meta = {
-  slug: string;
-  title: string;
-  subtitle: string;
-  image?: string;
-  category?: string;
-  demo?: boolean;
-  total_conversations: number;
-  updated: string;
-};
+type Meta={slug:string;title:string;subtitle:string;image?:string;category?:string;demo?:boolean;total_conversations:number;updated:string};
+type Sentiment={negative:number;neutral:number;positive:number;change_last_6h:number};
+type Audience={geography:{value:string;confidence?:string};language:{distribution:Record<string,number>;confidence?:string};age_bracket:{value:string;confidence:string};interest_groups:string[];key_topics?:string[];leading_platform?:string;confidence?:{interests?:string;topics?:string;platform?:string}};
+type TrendApi={time:string;volume:number;negative:number}[];
+type DriverApi={title:string;description:string;status:string}[];
+type VoiceApi={quote:string;label:string;stance?:string;source?:string}[];
+type Confidence={level:string;sources:string[];qualified_conversations:number;qualified_public_signals?:number;low_signal_excluded_or_downweighted:number;analysis_scope?:string;metric_label?:string};
+type Brief={insight:string};
+type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:string;target:string;weight:number}[]};
 
-type Sentiment = {
-  negative: number;
-  neutral: number;
-  positive: number;
-  change_last_6h: number;
-  qualified_conversations?: number;
-};
-
-type Audience = {
-  geography: { value: string };
-  language: { distribution: Record<string, number> };
-  age_bracket: { value: string; confidence: string };
-  interest_groups: string[];
-  key_topics?: string[];
-  leading_platform?: string;
-};
-
-type TrendApi = { time: string; volume: number; negative: number }[];
-type DriverApi = { title: string; description: string; status: string }[];
-type VoiceApi = { quote: string; label: string; stance?: string; source?: string }[];
-type Confidence = {
-  level: string;
-  sources: string[];
-  qualified_conversations: number;
-  low_signal_excluded_or_downweighted: number;
-};
-type Brief = { insight: string; what_changed?: string; what_is_rising?: string; what_to_watch?: string };
-type Network = {
-  nodes: { id: string; label: string; centrality?: number; group?: string; size?: number }[];
-  edges: { source: string; target: string; weight: number }[];
-};
-
-/** Aggregates the independent backend analytics endpoints into the unified Topic model. */
-export async function getTopic(slug: string): Promise<Topic | null> {
-  try {
-    const [meta, sentiment, audience, trends, drivers, voices, network, confidence, brief] = await Promise.all([
-      getJson<Meta>(`/api/topics/${slug}`),
-      getJson<Sentiment>(`/api/topics/${slug}/sentiment`),
-      getJson<Audience>(`/api/topics/${slug}/audience`),
-      getJson<TrendApi>(`/api/topics/${slug}/trends`),
-      getJson<DriverApi>(`/api/topics/${slug}/drivers`),
-      getJson<VoiceApi>(`/api/topics/${slug}/voices`),
-      getJson<Network>(`/api/topics/${slug}/network`),
-      getJson<Confidence>(`/api/topics/${slug}/confidence`),
+/** Aggregates the independent FastAPI endpoints into the dashboard model. */
+export async function getTopic(slug:string):Promise<Topic|null>{
+  if(slug!==reservationTopic.slug&&!API_URL)return null;
+  if(!API_URL)return reservationTopic;
+  try{
+    const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
+      getJson<Meta>(`/api/topics/${slug}`),getJson<Sentiment>(`/api/topics/${slug}/sentiment`),
+      getJson<Audience>(`/api/topics/${slug}/audience`),getJson<TrendApi>(`/api/topics/${slug}/trends`),
+      getJson<DriverApi>(`/api/topics/${slug}/drivers`),getJson<VoiceApi>(`/api/topics/${slug}/voices`),
+      getJson<Network>(`/api/topics/${slug}/network`),getJson<Confidence>(`/api/topics/${slug}/confidence`),
       getJson<Brief>(`/api/topics/${slug}/brief`),
     ]);
-
-    const language =
-      Object.entries(audience.language.distribution).sort((a, b) => b[1] - a[1])[0]?.[0] ??
-      "Awaiting streaming data";
-
-    const mappedTrends: TrendPoint[] = trends.map((point) => ({
-      time: point.time,
-      volume: point.volume,
-      sentiment: point.negative,
-    }));
-
-    const mappedDrivers: Driver[] = drivers.map((driver) => ({
-      title: driver.title,
-      description: driver.description,
-      status: titleCase(driver.status) as Driver["status"],
-    }));
-
-    const mappedVoices: PublicVoice[] = voices.map((voice) => ({
-      quote: voice.quote,
-      label: voice.source ? `${voice.label} · ${voice.source}` : voice.label,
-      tone:
-        voice.stance === "supportive"
-          ? "supporting"
-          : voice.stance === "opposing"
-          ? "concerned"
-          : "neutral",
-    }));
-
-    const rawAge = audience.age_bracket.value ?? "";
-    const age = rawAge && /^\d/.test(rawAge) ? `${rawAge} years` : rawAge;
-
-    return {
-      slug: meta.slug,
-      title: meta.title,
-      subtitle: meta.subtitle,
-      image: meta.image,
-      category: meta.category,
-      preview: Boolean(meta.demo && meta.total_conversations === 0),
-      totalConversations: meta.total_conversations,
-      updated: meta.updated,
-      sentiment: {
-        negative: sentiment.negative,
-        neutral: sentiment.neutral,
-        positive: sentiment.positive,
-      },
-      sentimentChange: sentiment.change_last_6h,
-      insight: brief.insight,
-      audience: {
-        geography: audience.geography.value,
-        language,
-        age,
-        ageConfidence: audience.age_bracket.confidence,
-        interests: audience.interest_groups.join(" & ") || "Awaiting signals",
-        topics: audience.key_topics ?? [],
-        platform: audience.leading_platform ?? "Multi-platform",
-      },
-      drivers: mappedDrivers,
-      voices: mappedVoices,
-      trends: mappedTrends,
-      confidence: {
-        sources: confidence.sources,
-        qualified: confidence.qualified_conversations,
-        lowSignal: confidence.low_signal_excluded_or_downweighted,
-        level: confidence.level,
-      },
-      network: {
-        nodes: (network.nodes || []).map((node) => ({
-          id: node.id,
-          label: node.label,
-          group: node.group ?? "dynamic",
-          size: node.size ?? Math.max(20, Math.round((node.centrality ?? 0.5) * 50)),
-        })),
-        edges: network.edges || [],
-      },
-    };
-  } catch {
-    return buildBlankTopic(slug);
-  }
+    const language=Object.entries(audience.language.distribution).sort((a,b)=>b[1]-a[1])[0]?.[0]??"Unavailable";
+    const mappedTrends:TrendPoint[]=trends.map(point=>({time:point.time,volume:point.volume,sentiment:point.negative}));
+    const mappedDrivers:Driver[]=drivers.map(driver=>({title:driver.title,description:driver.description,status:titleCase(driver.status) as Driver["status"]}));
+    const mappedVoices:PublicVoice[]=voices.map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
+    const rawAge=audience.age_bracket.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
+    return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,preview:Boolean(meta.demo&&meta.total_conversations===0),analysisScope:confidence.analysis_scope,metricLabel:confidence.metric_label??"public conversations analysed",totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,geographyConfidence:audience.geography.confidence??"Unavailable",language,languageConfidence:audience.language.confidence??"Unavailable",age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),interestsConfidence:audience.confidence?.interests??"Unavailable",topics:audience.key_topics??[],topicsConfidence:audience.confidence?.topics??"Unavailable",platform:audience.leading_platform??"",platformConfidence:audience.confidence?.platform??"Unavailable"},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_public_signals??confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
+  }catch{return slug===reservationTopic.slug?reservationTopic:null}
 }
 
-export async function askAnalyst(topicSlug: string, question: string) {
-  const response = await resilientFetch("/api/ai/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic_slug: topicSlug, question }),
-  });
-  if (!response.ok) throw new Error("The analyst is temporarily unavailable");
-  return response.json() as Promise<{
-    answer: string;
-    evidence: string[];
-    confidence: string;
-    last_updated: string;
-  }>;
+export async function askAnalyst(topicSlug:string,question:string){
+  const response=await fetch(`${CLIENT_API_URL}/api/ai/ask`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic_slug:topicSlug,question})});
+  if(!response.ok)throw new Error("The analyst is temporarily unavailable");
+  return response.json() as Promise<{answer:string;evidence:string[];confidence:string;last_updated:string}>;
 }
 
-async function clientJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await resilientFetch(path, init);
-  if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+async function clientJson<T>(path:string,init?:RequestInit):Promise<T>{
+  const response=await fetch(`${CLIENT_API_URL}${path}`,init);
+  if(!response.ok)throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
 }
-
-export const getStories = (path = "/api/stories") => clientJson<Story[]>(path);
-export const refreshLatestNews = (limit = 12) =>
-  clientJson<{ provider: string; received: number; added: number; stories: Story[] }>(
-    `/api/news/refresh?limit=${limit}`,
-    { method: "POST" }
-  );
-export const getStory = (id: string) => clientJson<Story>(`/api/stories/${id}`);
-export const getBookmarks = () => clientJson<Story[]>("/api/bookmarks");
-export const getFeed = () => clientJson<Story[]>("/api/feed");
-export const searchContent = (query: string) =>
-  clientJson<{
-    query: string;
-    stories: Story[];
-    topics: { slug: string; title: string; subtitle: string; updated: string }[];
-  }>(`/api/search?q=${encodeURIComponent(query)}`);
-export const setBookmark = (id: string, enabled: boolean) =>
-  clientJson<{ story_id: string; bookmarked: boolean }>(`/api/bookmarks/${id}`, {
-    method: enabled ? "POST" : "DELETE",
-  });
-export const getPreferences = () =>
-  clientJson<{ notifications_enabled: boolean }>("/api/preferences");
-export const setNotifications = (enabled: boolean) =>
-  clientJson<{ notifications_enabled: boolean }>("/api/preferences/notifications", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
-  });
-
-export interface ConnectorStatus {
-  platform: string;
-  configured: boolean;
-  description: string;
-  credential_fields: string[];
-  discovery_supported: boolean;
-  requires_targets: boolean;
-}
-
-export interface IngestionJob {
-  job_id: string;
-  topic_slug: string;
-  platforms: string[];
-  query: string;
-  status: string;
-  results: Record<string, { fetched: number; stored: number }>;
-  errors: Record<string, string>;
-  started_at: string;
-  completed_at: string | null;
-}
-
-export interface TopicSummary {
-  slug: string;
-  title: string;
-  subtitle: string;
-  total_conversations: number;
-  updated: string;
-  demo: boolean;
-}
-
-export interface NarrativeSummary {
-  id: number;
-  topic_slug: string;
-  title: string;
-  classification: "emerging" | "popular" | "declining";
-  velocity: number;
-  momentum: number;
-  volume: number;
-  sentiment_balance: number;
-  dominant_platform: string;
-  last_updated: string;
-}
-
-export interface NarrativesResponse {
-  emerging: NarrativeSummary[];
-  popular: NarrativeSummary[];
-}
-
-export interface KafkaStatusResponse {
-  status: "connected" | "degraded" | "unavailable";
-  bootstrap_servers: string;
-  topics: {
-    social_raw: string;
-    social_high_signal: string;
-    social_analytics: string;
-  };
-  in_memory_fallback: {
-    active: boolean;
-    queue_size: number;
-  };
-}
-
-export interface TopicAnalysisResponse {
-  topic: string;
-  total_signals: number;
-  high_signal_ratio: number;
-  sentiment: {
-    positive: number;
-    negative: number;
-    neutral: number;
-  };
-  top_keywords: {
-    term: string;
-    c_tfidf: number;
-  }[];
-  recent_high_signal_samples: {
-    text: string;
-    platform: string;
-    signal_quality: number;
-    sentiment: string;
-  }[];
-}
-
-export interface AutomationStatus {
-  status: string;
-  enabled: boolean;
-  interval_minutes: number;
-  configured_platforms: string[];
-  requested_platforms: string[];
-  credential_setup_required: boolean;
-  last_started: string | null;
-  last_completed: string | null;
-  topics_processed: number;
-  comments_stored: number;
-  errors: Record<string, unknown>;
-}
-
-export const getConnectors = () => clientJson<ConnectorStatus[]>("/api/connectors");
-export const getTopics = () => clientJson<TopicSummary[]>("/api/topics");
-export async function getNarratives(): Promise<NarrativesResponse> {
-  try {
-    const raw = await clientJson<any>("/api/topics/narratives");
-    if (!raw) return { emerging: [], popular: [] };
-
-    // If already in { emerging: [...], popular: [...] } format
-    if (Array.isArray(raw.emerging) || Array.isArray(raw.popular)) {
-      return {
-        emerging: Array.isArray(raw.emerging) ? raw.emerging : [],
-        popular: Array.isArray(raw.popular) ? raw.popular : [],
-      };
-    }
-
-    // If raw is an array of narratives from /api/topics/narratives
-    if (Array.isArray(raw)) {
-      const emerging: NarrativeSummary[] = [];
-      const popular: NarrativeSummary[] = [];
-
-      for (let i = 0; i < raw.length; i++) {
-        const item = raw[i];
-        const summary: NarrativeSummary = {
-          id: item.id ?? i + 1,
-          topic_slug: item.slug ?? item.topic_slug ?? "general",
-          title: item.title ?? "Trending Narrative",
-          classification: item.is_emerging || item.status === "EMERGING" ? "emerging" : "popular",
-          velocity: item.velocity ?? 0,
-          momentum: item.momentum_score ?? item.momentum ?? 50,
-          volume: item.total_conversations ?? item.volume ?? 0,
-          sentiment_balance: (item.sentiment?.positive ?? 50) - (item.sentiment?.negative ?? 20),
-          dominant_platform: item.dominant_platform ?? item.category ?? "Multi-platform",
-          last_updated: item.published_at ?? "Just now",
-        };
-
-        if (summary.classification === "emerging") {
-          emerging.push(summary);
-        } else {
-          popular.push(summary);
-        }
-      }
-
-      return { emerging, popular };
-    }
-
-    return { emerging: [], popular: [] };
-  } catch {
-    return { emerging: [], popular: [] };
-  }
-}
-export const getPosts = (limit = 30, topic?: string) =>
-  clientJson<SocialPost[]>(`/api/posts?limit=${limit}${topic ? `&topic=${encodeURIComponent(topic)}` : ""}`);
-export const getKafkaStatus = () => clientJson<KafkaStatusResponse>("/api/kafka/status");
-export const analyzeTopicQuery = (query: string, max_items = 25) =>
-  clientJson<TopicAnalysisResponse>("/api/analyze/topic", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, max_items }),
-  });
-export const getModelStatus = () =>
-  clientJson<{
-    sentiment: {
-      requested_provider: string;
-      active_provider: string;
-      model: string;
-      local_runtime_installed: boolean;
-      endpoint_configured: boolean;
-      last_error: string | null;
-      model_card_note: string;
-    };
-    safety: { active_provider: string; model: string; note: string };
-  }>("/api/models/status");
-export const getIngestionJobs = () => clientJson<IngestionJob[]>("/api/ingestion/jobs");
-export const getAutomationStatus = () => clientJson<AutomationStatus>("/api/ingestion/automation/status");
-export const runAutomationNow = () => clientJson<AutomationStatus>("/api/ingestion/automation/run-now", { method: "POST" });
-export const runIngestion = (payload: {
-  topic_slug: string;
-  query: string;
-  platforms: string[];
-  targets: Record<string, string[]>;
-  max_items: number;
-}) =>
-  clientJson<{
-    job_id: string;
-    status: string;
-    results: Record<string, { fetched: number; stored: number }>;
-    errors: Record<string, string>;
-  }>("/api/ingestion/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-export const getCommentSummary = () => clientJson<Record<string, unknown>>("/api/comments/summary");
-export const classifyComment = (text: string) =>
-  clientJson<Record<string, unknown>>("/api/classify", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, context: "public discourse", platform: "manual" }),
-  });
-
-export const getInsights = (topicSlug?: string) =>
-  clientJson<InsightCard[]>(`/api/insights${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
-
-export const getInsightsSummary = () =>
-  clientJson<{
-    total_posts: number;
-    qualified_signals: number;
-    active_narratives: number;
-    emerging_narratives: number;
-    average_negative_sentiment: number;
-    risk_level: string;
-    influential_accounts_tracked: number;
-    cross_platform_coverage: string[];
-  }>("/api/insights/summary");
-
-export const getEmergingNarratives = () =>
-  clientJson<{
-    slug: string;
-    title: string;
-    status: string;
-    momentum_score: number;
-    tier: string;
-    velocity: number;
-    volume_acceleration: number;
-    cross_platform_score: number;
-    formula: string;
-  }[]>("/api/insights/emerging");
-
-export const getEmotionInsights = (topicSlug?: string) =>
-  clientJson<{
-    dominant: string;
-    distribution: Record<string, number>;
-    spikes: { emotion: string; percentage: number; message: string }[];
-    sample_size: number;
-  }>(`/api/insights/emotion${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
-
-export const getStanceInsights = (topicSlug?: string) =>
-  clientJson<{
-    support_pct: number;
-    oppose_pct: number;
-    neutral_pct: number;
-    unclear_pct: number;
-    total_analyzed: number;
-  }>(`/api/insights/stance${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
-
-export const getPropagationInsights = (topicSlug?: string) =>
-  clientJson<PropagationData>(`/api/insights/propagation${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
-
-export const getModelTransparency = () =>
-  clientJson<{ pipeline: ModelTransparencyItem[] }>("/api/insights/models");
-
-export const getIntelligenceBrief = (topicSlug?: string) =>
-  clientJson<IntelligenceBrief>(`/api/intelligence-brief${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
-
-export const queryAnalyst = (question: string, topicSlug: string = "global") =>
-  clientJson<{
-    answer: string;
-    evidence: string[];
-    confidence: "Low" | "Medium" | "High";
-    last_updated: string;
-    provider: string;
-  }>("/api/analyst/query", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, topic_slug: topicSlug }),
-  });
+export const getStories=(path="/api/stories")=>clientJson<Story[]>(path);
+export const refreshLatestNews=()=>clientJson<{provider:string;received:number;added:number;stories:Story[]}>("/api/news/refresh",{method:"POST"});
+export const getStory=(id:string)=>clientJson<Story>(`/api/stories/${id}`);
+export const getBookmarks=()=>clientJson<Story[]>("/api/bookmarks");
+export const getFeed=()=>clientJson<Story[]>("/api/feed");
+export const searchContent=(query:string)=>clientJson<{query:string;stories:Story[];topics:{slug:string;title:string;subtitle:string;updated:string}[]}>(`/api/search?q=${encodeURIComponent(query)}`);
+export const setBookmark=(id:string,enabled:boolean)=>clientJson<{story_id:string;bookmarked:boolean}>(`/api/bookmarks/${id}`,{method:enabled?"POST":"DELETE"});
+export const getPreferences=()=>clientJson<{notifications_enabled:boolean}>("/api/preferences");
+export const setNotifications=(enabled:boolean)=>clientJson<{notifications_enabled:boolean}>("/api/preferences/notifications",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});
+export const chatWithAssistant=(message:string,topicSlug?:string,pagePath?:string)=>clientJson<{answer:string;actions:{label:string;href:string}[];evidence:string[]}>("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message,topic_slug:topicSlug,page_path:pagePath})});
+export interface ConnectorStatus{platform:string;configured:boolean;description:string;credential_fields:string[];discovery_supported:boolean;requires_targets:boolean}
+export interface IngestionJob{job_id:string;topic_slug:string;platforms:string[];query:string;status:string;results:Record<string,{fetched:number;stored:number}>;errors:Record<string,string>;started_at:string;completed_at:string|null}
+export interface TopicSummary{slug:string;title:string;subtitle:string;total_conversations:number;updated:string;demo:boolean}
+export interface AutomationStatus{status:string;enabled:boolean;interval_minutes:number;configured_platforms:string[];requested_platforms:string[];credential_setup_required:boolean;last_started:string|null;last_completed:string|null;topics_processed:number;comments_stored:number;errors:Record<string,unknown>}
+export const getConnectors=()=>clientJson<ConnectorStatus[]>("/api/connectors");
+export const getTopics=()=>clientJson<TopicSummary[]>("/api/topics");
+export const getModelStatus=()=>clientJson<{sentiment:{requested_provider:string;active_provider:string;model:string;local_runtime_installed:boolean;endpoint_configured:boolean;last_error:string|null;model_card_note:string};safety:{active_provider:string;model:string;note:string}}>("/api/models/status");
+export const getIngestionJobs=()=>clientJson<IngestionJob[]>("/api/ingestion/jobs");
+export const getAutomationStatus=()=>clientJson<AutomationStatus>("/api/ingestion/automation/status");
+export const runAutomationNow=()=>clientJson<AutomationStatus>("/api/ingestion/automation/run-now",{method:"POST"});
+export const runIngestion=(payload:{topic_slug:string;query:string;platforms:string[];targets:Record<string,string[]>;max_items:number})=>clientJson<{job_id:string;status:string;results:Record<string,{fetched:number;stored:number}>;errors:Record<string,string>}>("/api/ingestion/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+export const getCommentSummary=()=>clientJson<Record<string,unknown>>("/api/comments/summary");
+export const classifyComment=(text:string)=>clientJson<Record<string,unknown>>("/api/classify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,context:"reservation policy",platform:"manual"})});

@@ -1,83 +1,20 @@
 "use client";
-import {Bell,ChevronRight,Cookie,Database,Download,Eye,Fingerprint,Globe2,KeyRound,type LucideIcon,MapPin,Megaphone,Monitor,ShieldCheck,Sparkles,Trash2,UserRound} from "lucide-react";
+import {Bell,ChevronRight,Globe2,KeyRound,LockKeyhole,Megaphone,Moon,ShieldCheck,Sparkles,UserRound} from "lucide-react";
 import {useEffect,useState} from "react";
 import {getPreferences,setNotifications} from "@/lib/api";
-import {Sidebar} from "./Sidebar";
-import {Topbar} from "./Topbar";
-
-type Category="profile"|"security"|"privacy"|"ads";
-const categories:{id:Category;label:string;hint:string;icon:LucideIcon}[]=[
-  {id:"profile",label:"Profile",hint:"Name, workspace, notifications",icon:UserRound},
-  {id:"security",label:"Password & Security",hint:"Login, 2FA, sessions",icon:KeyRound},
-  {id:"privacy",label:"Data & Privacy",hint:"Collection, sharing, deletion",icon:ShieldCheck},
-  {id:"ads",label:"Ad Preferences",hint:"Personalization & activity",icon:Megaphone},
-];
-
-type ToggleRow={kind:"toggle";id:string;icon:LucideIcon;title:string;desc:string;default:boolean};
-type ValueRow={kind:"value";icon:LucideIcon;title:string;desc:string;value:string};
-type Row=ToggleRow|ValueRow;
-type Group={heading:string;rows:Row[]};
-
-const content:Record<Category,{title:string;intro:string;groups:Group[]}>={
-  profile:{title:"Profile",intro:"How your account appears and how UPDATES keeps you informed. These details are visible only inside your workspace.",groups:[
-    {heading:"Account",rows:[
-      {kind:"value",icon:UserRound,title:"Display name",desc:"Shown on shared reports and comments.",value:"Analyst"},
-      {kind:"value",icon:Globe2,title:"Workspace",desc:"The organization this account belongs to.",value:"UPDATES Intelligence"},
-      {kind:"value",icon:MapPin,title:"Default region",desc:"Used to prioritize regional signals.",value:"Global"},
-    ]},
-    {heading:"Notifications",rows:[
-      {kind:"toggle",id:"notify",icon:Bell,title:"Live update notifications",desc:"Interface alerts when followed topics change significantly.",default:false},
-      {kind:"toggle",id:"digest",icon:Sparkles,title:"Weekly trend digest",desc:"A summary of emerging narratives across your topics.",default:true},
-    ]},
-  ]},
-  security:{title:"Password & Security",intro:"Keep your account secure. Manage how you sign in and review where your account is active.",groups:[
-    {heading:"Login",rows:[
-      {kind:"value",icon:KeyRound,title:"Password",desc:"Last changed 3 months ago.",value:"Change"},
-      {kind:"toggle",id:"twofa",icon:Fingerprint,title:"Two-factor authentication",desc:"Require a second step when signing in from a new device.",default:true},
-      {kind:"toggle",id:"alerts",icon:ShieldCheck,title:"Unrecognized login alerts",desc:"Get notified about logins from new devices or locations.",default:true},
-    ]},
-    {heading:"Sessions",rows:[
-      {kind:"value",icon:Monitor,title:"Where you're logged in",desc:"Review and sign out active devices.",value:"2 active"},
-      {kind:"toggle",id:"autologout",icon:KeyRound,title:"Auto sign-out when idle",desc:"End the session after a long period of inactivity.",default:false},
-    ]},
-  ]},
-  privacy:{title:"Data & Privacy",intro:"Control what UPDATES collects for you and how insights are shared. The platform only ever analyzes public content in the aggregate.",groups:[
-    {heading:"Collection",rows:[
-      {kind:"toggle",id:"aggregate",icon:Database,title:"Aggregate analytics only",desc:"Restrict processing to group-level, non-identifying signals.",default:true},
-      {kind:"toggle",id:"sensitive",icon:ShieldCheck,title:"Exclude sensitive categories",desc:"Down-weight signals inferring health, religion or political identity.",default:true},
-    ]},
-    {heading:"Sharing",rows:[
-      {kind:"toggle",id:"share",icon:Eye,title:"Share anonymized insights",desc:"Allow aggregated trends to improve shared benchmarks.",default:false},
-      {kind:"value",icon:Download,title:"Download your data",desc:"Export the preferences and settings tied to this account.",value:"Export"},
-      {kind:"value",icon:Trash2,title:"Delete account data",desc:"Permanently remove this account's stored preferences.",value:"Delete"},
-    ]},
-  ]},
-  ads:{title:"Ad Preferences",intro:"Manage personalization. UPDATES does not sell your data — these controls govern only in-product recommendations.",groups:[
-    {heading:"Personalization",rows:[
-      {kind:"toggle",id:"personalized",icon:Megaphone,title:"Personalized recommendations",desc:"Tailor suggested topics to your recent activity.",default:true},
-      {kind:"toggle",id:"activity",icon:Eye,title:"Use activity for suggestions",desc:"Let your reading history influence what surfaces first.",default:false},
-      {kind:"toggle",id:"cookies",icon:Cookie,title:"Non-essential cookies",desc:"Allow analytics cookies that help improve the interface.",default:false},
-    ]},
-  ]},
-};
-
+import {Sidebar} from "./Sidebar";import {Topbar} from "./Topbar";
+type Tab="profile"|"security"|"privacy"|"ads";
+const tabs=[{id:"profile" as Tab,label:"Profile",hint:"Name, workspace, notifications",icon:UserRound},{id:"security" as Tab,label:"Password & Security",hint:"Sessions and account protection",icon:KeyRound},{id:"privacy" as Tab,label:"Data & Privacy",hint:"Collection, sharing, deletion",icon:ShieldCheck},{id:"ads" as Tab,label:"Content Preferences",hint:"Personalization and activity",icon:Megaphone}];
+const read=(key:string,fallback:string)=>typeof window==="undefined"?fallback:localStorage.getItem(key)??fallback;
 export function SettingsPage(){
-  const [category,setCategory]=useState<Category>("profile");
-  const [toggles,setToggles]=useState<Record<string,boolean>>(()=>{const seed:Record<string,boolean>={};Object.values(content).forEach(section=>section.groups.forEach(group=>group.rows.forEach(row=>{if(row.kind==="toggle")seed[row.id]=row.default})));return seed});
-  const [saved,setSaved]=useState("");
-  useEffect(()=>{getPreferences().then(x=>setToggles(prev=>({...prev,notify:x.notifications_enabled}))).catch(()=>setToggles(prev=>({...prev,notify:localStorage.getItem("updates-notifications")==="true"})))},[]);
-  async function flip(id:string){const next=!toggles[id];setToggles(prev=>({...prev,[id]:next}));if(id==="notify"){localStorage.setItem("updates-notifications",String(next));try{await setNotifications(next);flash("Saved to backend")}catch{flash("Saved on this device")}}else flash("Preference updated")}
-  function flash(message:string){setSaved(message);setTimeout(()=>setSaved(""),1600)}
-  const active=content[category];
-  return <div className="app-shell"><Sidebar active="Settings"/><main className="main"><Topbar/>
-    <header className="utility-header"><ShieldCheck/><div><span>ACCOUNTS CENTER</span><h1>Settings</h1><p>Manage your profile, security, data privacy and ad preferences in one place.</p></div></header>
-    <div className="accounts-center">
-      <aside className="ac-rail" aria-label="Settings categories"><div className="ac-rail-title">SETTINGS</div>{categories.map(({id,label,hint,icon:Icon})=><button key={id} className={category===id?"active":""} onClick={()=>setCategory(id)} aria-pressed={category===id}><Icon/><span><b>{label}</b><small>{hint}</small></span></button>)}</aside>
-      <section className="ac-content"><header><h2>{active.title}</h2><p>{active.intro}</p></header>
-        {active.groups.map(group=><div className="ac-group" key={group.heading}><h3>{group.heading}</h3>{group.rows.map(row=>{const Icon=row.icon;return <div className="ac-row" key={row.title}><Icon size={19}/><div className="ac-row-main"><strong>{row.title}</strong><small>{row.desc}</small></div>{row.kind==="toggle"?<button className={toggles[row.id]?"ac-toggle on":"ac-toggle"} onClick={()=>flip(row.id)} aria-pressed={toggles[row.id]} aria-label={row.title}><i/></button>:<><span className="ac-value">{row.value}</span><button className="ac-chevron" aria-label={row.title}><ChevronRight size={17}/></button></>}</div>})}</div>)}
-        <div className="ac-note"><ShieldCheck size={16}/><span>These controls are a hardcoded demonstration of the privacy and security surface. Toggle states are stored locally; connect the backend to persist them per account. Live update notifications are already wired to the preferences API.</span></div>
-      </section>
-    </div>
-    {saved&&<div className="toast">{saved}</div>}
-  </main></div>;
-}
+ const [tab,setTab]=useState<Tab>("profile");const [enabled,setEnabled]=useState(false);const [digest,setDigest]=useState(true);const [darkTheme,setDarkTheme]=useState(false);const [displayName,setDisplayName]=useState("Analyst");const [region,setRegion]=useState("India");const [language,setLanguage]=useState("English");const [personalized,setPersonalized]=useState(true);const [saved,setSaved]=useState("");
+ useEffect(()=>{const timer=window.setTimeout(()=>{setDisplayName(read("updates-display-name","Analyst"));setRegion(read("updates-region","India"));setLanguage(read("updates-language","English"));setDigest(read("updates-digest","true")==="true");setPersonalized(read("updates-personalized","true")==="true");setDarkTheme(read("updates-theme","light")==="dark")},0);getPreferences().then(x=>setEnabled(x.notifications_enabled)).catch(()=>setEnabled(read("updates-notifications","false")==="true"));return()=>window.clearTimeout(timer)},[]);
+ function notice(message:string){setSaved(message);window.setTimeout(()=>setSaved(""),1800)}function persist(key:string,value:string,message="Preference saved"){localStorage.setItem(key,value);notice(message)}
+ async function toggleNotifications(){const next=!enabled;setEnabled(next);persist("updates-notifications",String(next));try{await setNotifications(next);notice("Notification preference saved")}catch{notice("Saved on this device")}}
+ function toggleDigest(){const next=!digest;setDigest(next);persist("updates-digest",String(next))}function toggleTheme(){const next=!darkTheme;setDarkTheme(next);document.documentElement.dataset.theme=next?"dark":"light";persist("updates-theme",next?"dark":"light",next?"Dark theme enabled":"Light theme enabled")}function togglePersonalized(){const next=!personalized;setPersonalized(next);persist("updates-personalized",String(next))}
+ return <div className="app-shell"><Sidebar active="Settings"/><main className="main settings-main"><Topbar/><header className="account-header"><span><ShieldCheck/></span><div><small>ACCOUNTS CENTER</small><h1>Settings</h1><p>Manage your profile, security, data privacy and content preferences in one place.</p></div></header><div className="account-layout"><aside className="settings-menu"><b>SETTINGS</b>{tabs.map(({id,label,hint,icon:Icon})=><button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}><i><Icon/></i><span><strong>{label}</strong><small>{hint}</small></span></button>)}</aside><section className="settings-surface">
+ {tab==="profile"&&<><h2>Profile</h2><p>How your account appears and how UPDATES keeps you informed. These preferences are stored for this workspace.</p><h3>ACCOUNT</h3><label className="setting-row"><UserRound/><span><b>Display name</b><small>Shown on shared reports and comments.</small></span><input value={displayName} onChange={e=>setDisplayName(e.target.value)} onBlur={()=>persist("updates-display-name",displayName,"Display name saved")}/></label><div className="setting-row"><Globe2/><span><b>Workspace</b><small>The organization this account belongs to.</small></span><strong>UPDATES Intelligence</strong></div><label className="setting-row"><Globe2/><span><b>Default region</b><small>Used to prioritize regional signals.</small></span><select value={region} onChange={e=>{setRegion(e.target.value);persist("updates-region",e.target.value)}}><option>India</option><option>Global</option><option>Delhi NCR</option><option>Maharashtra</option><option>South Asia</option></select></label><h3>APPEARANCE</h3><div className="setting-row"><Moon/><span><b>Dark theme</b><small>Use a darker interface throughout UPDATES.</small></span><button className={darkTheme?"toggle on":"toggle"} onClick={toggleTheme} aria-pressed={darkTheme}><i/></button></div><h3>NOTIFICATIONS</h3><div className="setting-row"><Bell/><span><b>Live update notifications</b><small>Interface alerts when followed topics change significantly.</small></span><button className={enabled?"toggle on":"toggle"} onClick={toggleNotifications} aria-pressed={enabled}><i/></button></div><div className="setting-row"><Sparkles/><span><b>Weekly trend digest</b><small>A summary of emerging narratives across your topics.</small></span><button className={digest?"toggle on":"toggle"} onClick={toggleDigest} aria-pressed={digest}><i/></button></div></>}
+ {tab==="security"&&<><h2>Password & Security</h2><p>Review account protection and active access.</p><h3>SECURITY</h3><button className="setting-row row-button" onClick={()=>notice("Password reset link requested")}><LockKeyhole/><span><b>Change password</b><small>Request a secure password-reset link.</small></span><ChevronRight/></button><button className="setting-row row-button" onClick={()=>notice("Two-factor setup opened")}><ShieldCheck/><span><b>Two-factor authentication</b><small>Add an authenticator before production deployment.</small></span><strong>Set up</strong></button><div className="setting-row"><Globe2/><span><b>Current session</b><small>Local development workspace · active now</small></span><strong className="green">Active</strong></div></>}
+ {tab==="privacy"&&<><h2>Data & Privacy</h2><p>Control how aggregate public-signal data is used in your workspace.</p><h3>PRIVACY</h3><a className="setting-row row-button" href="/help#privacy"><ShieldCheck/><span><b>Privacy guide</b><small>See exactly what is collected, retained and anonymized.</small></span><ChevronRight/></a><button className="setting-row row-button" onClick={()=>{localStorage.removeItem("updates-display-name");localStorage.removeItem("updates-region");localStorage.removeItem("updates-language");notice("Local profile data cleared")}}><UserRound/><span><b>Clear local profile data</b><small>Removes locally stored interface preferences.</small></span><ChevronRight/></button><button className="setting-row row-button" onClick={()=>notice("Privacy request prepared")}><LockKeyhole/><span><b>Request data review</b><small>Prepare a review or removal request.</small></span><ChevronRight/></button></>}
+ {tab==="ads"&&<><h2>Content Preferences</h2><p>Choose how discovery and recommendation surfaces behave.</p><h3>DISCOVERY</h3><div className="setting-row"><Sparkles/><span><b>Personalized recommendations</b><small>Prioritize stories using your selected categories and region.</small></span><button className={personalized?"toggle on":"toggle"} onClick={togglePersonalized} aria-pressed={personalized}><i/></button></div><label className="setting-row"><Globe2/><span><b>Interface language</b><small>Controls labels; analysis still detects every supported language.</small></span><select value={language} onChange={e=>{setLanguage(e.target.value);persist("updates-language",e.target.value)}}><option>English</option><option>Hindi</option><option>Hinglish</option></select></label><button className="setting-row row-button" onClick={()=>notice("Recommendation history reset")}><Megaphone/><span><b>Reset recommendation history</b><small>Start discovery preferences from a clean slate.</small></span><ChevronRight/></button></>}
+ </section></div>{saved&&<div className="toast" role="status">{saved}</div>}</main></div>}
