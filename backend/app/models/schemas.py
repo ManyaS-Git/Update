@@ -64,8 +64,8 @@ class AIResponse(BaseModel):
     answer: str
     evidence: list[str]
     confidence: Literal["Low", "Medium", "High"]
-    last_updated: str
-    provider: str
+    last_updated: str = "Just now"
+    provider: str = "rag-analyst"
 
 class AnalysisRequest(BaseModel):
     topic_slug: str

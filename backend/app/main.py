@@ -7,6 +7,7 @@ from app.api.routes.analysis import router as analysis_router
 from app.api.routes.topics import router as topics_router
 from app.api.routes.content import router as content_router
 from app.api.routes.intelligence import router as intelligence_router
+from app.api.routes.insights import router as insights_router
 from app.core.config import get_settings
 from app.services.database import init_database, bootstrap_live_data
 from app.services.auto_ingestion import auto_ingestion_loop
@@ -62,6 +63,7 @@ app.include_router(topics_router)
 app.include_router(content_router)
 app.include_router(intelligence_router)
 app.include_router(analysis_router)
+app.include_router(insights_router)
 
 @app.get("/health")
 def health():

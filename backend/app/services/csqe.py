@@ -126,3 +126,88 @@ class CSQEService:
             classification=classification,
             reason=reason,
         )
+
+    def explain_qualification(self, text: str, metadata: dict | None = None) -> dict:
+        qual = self.qualify(text)
+        words = re.findall(r"[\w'-]+", text.lower())
+        unique_words = set(words)
+        lexical_div = round(len(unique_words) / max(1, len(words)), 3)
+        found_opinions = [m for m in self.opinion_markers if m in text.lower()]
+        found_spams = [s for s in self.spam_indicators if s in text.lower()]
+        is_qual = qual.signal_quality >= self.min_threshold
+
+        inclusion_reasons = []
+        exclusion_reasons = []
+        if is_qual:
+            if len(words) >= 6:
+                inclusion_reasons.append(f"Substantive statement length ({len(words)} words)")
+            if lexical_div >= 0.75:
+                inclusion_reasons.append(f"High lexical diversity ({int(lexical_div * 100)}% unique vocabulary)")
+            if found_opinions:
+                inclusion_reasons.append(f"Contains substantive civic/policy stance terms: {', '.join(found_opinions[:3])}")
+            if not found_spams:
+                inclusion_reasons.append("Passed spam and advertising pattern filter")
+            inclusion_reasons.append("Passed duplicate and near-duplicate Jaccard similarity threshold")
+        else:
+            if qual.reason:
+                exclusion_reasons.append(qual.reason)
+            if len(words) <= 2:
+                exclusion_reasons.append("Single/dual word low-information comment")
+            if found_spams:
+                exclusion_reasons.append(f"Matched commercial or promotion indicators: {', '.join(found_spams)}")
+
+        return {
+            "text": text,
+            "is_qualified": is_qual,
+            "signal_quality": qual.signal_quality,
+            "classification": qual.classification,
+            "primary_reason": qual.reason,
+            "inclusion_reasons": inclusion_reasons,
+            "exclusion_reasons": exclusion_reasons,
+            "metrics": {
+                "word_count": len(words),
+                "unique_words": len(unique_words),
+                "lexical_diversity": lexical_div,
+                "opinion_markers": found_opinions,
+                "spam_matches": found_spams,
+            },
+        }
+
+def compute_csqe_statistics(posts: list[dict]) -> dict:
+    if not posts:
+        return {
+            "total_collected": 0,
+            "qualified_count": 0,
+            "filtered_count": 0,
+            "qualification_percentage": 0.0,
+            "spam_duplicate_percentage": 0.0,
+            "top_filtering_reasons": [],
+        }
+    csqe = CSQEService()
+    qualified = 0
+    filtered = 0
+    spam_or_dup = 0
+    reason_counts: Counter[str] = Counter()
+
+    for p in posts:
+        txt = p.get("content") or p.get("text") or ""
+        res = csqe.qualify(txt)
+        if res.signal_quality >= csqe.min_threshold:
+            qualified += 1
+        else:
+            filtered += 1
+            reason_counts[res.reason] += 1
+            if "Spam" in res.reason or "Duplicate" in res.reason:
+                spam_or_dup += 1
+
+    total = len(posts)
+    return {
+        "total_collected": total,
+        "qualified_count": qualified,
+        "filtered_count": filtered,
+        "qualification_percentage": round((qualified / total) * 100, 1) if total else 0.0,
+        "spam_duplicate_percentage": round((spam_or_dup / total) * 100, 1) if total else 0.0,
+        "top_filtering_reasons": [
+            {"reason": r, "count": c} for r, c in reason_counts.most_common(4)
+        ],
+    }

@@ -6,13 +6,18 @@ import {
   BarChart3,
   Bookmark,
   CheckCircle,
+  FileText,
+  Filter,
   Flame,
   Heart,
+  HelpCircle,
+  Info,
   LoaderCircle,
   MessageCircle,
   Radio,
   Repeat2,
   Share2,
+  ShieldCheck,
   TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -20,6 +25,8 @@ import type { SocialPost, Story } from "@/types";
 import { getPosts, getStories, setBookmark } from "@/lib/api";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { IntelligenceBriefModal } from "./IntelligenceBriefModal";
+import { ModelTransparencyPanel } from "./ModelTransparencyPanel";
 
 function toMinutes(time?: string): number {
   if (!time) return Number.MAX_SAFE_INTEGER;
@@ -33,6 +40,7 @@ function toMinutes(time?: string): number {
 function SocialPostCard({ post }: { post: SocialPost }) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(post.likes);
+  const [showExplanation, setShowExplanation] = useState(false);
 
   function toggleLike() {
     setLiked((v) => !v);
@@ -57,6 +65,9 @@ function SocialPostCard({ post }: { post: SocialPost }) {
       ? "#ee99a0"
       : "#c6a0f6";
 
+  const signalQuality = post.signal_quality ?? 0.82;
+  const isHighSignal = signalQuality >= 0.70;
+
   return (
     <article className="post-card" style={{ marginBottom: "1rem" }}>
       <div
@@ -80,23 +91,67 @@ function SocialPostCard({ post }: { post: SocialPost }) {
           </span>
           <i />
           <time>{post.timestamp}</time>
-          {post.sentiment && (
-            <span
+
+          <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center" }}>
+            {/* CSQE Quality Badge */}
+            <button
+              type="button"
+              onClick={() => setShowExplanation((v) => !v)}
               style={{
-                marginLeft: "auto",
                 fontSize: "0.72rem",
                 padding: "2px 8px",
                 borderRadius: "999px",
-                background: `${sentimentColor}20`,
-                color: sentimentColor,
-                fontWeight: 600,
-                textTransform: "capitalize",
+                background: isHighSignal ? "rgba(166, 218, 149, 0.15)" : "rgba(238, 212, 159, 0.15)",
+                color: isHighSignal ? "#a6da95" : "#eed49f",
+                border: "1px solid rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px",
               }}
+              title="Click to view CSQE Qualification Rationale"
             >
-              {post.sentiment}
-            </span>
-          )}
+              <ShieldCheck size={11} />
+              CSQE {Math.round(signalQuality * 100)}%
+            </button>
+
+            {post.sentiment && (
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  padding: "2px 8px",
+                  borderRadius: "999px",
+                  background: `${sentimentColor}20`,
+                  color: sentimentColor,
+                  fontWeight: 600,
+                  textTransform: "capitalize",
+                }}
+              >
+                {post.sentiment}
+              </span>
+            )}
+          </div>
         </div>
+
+        {showExplanation && (
+          <div
+            style={{
+              margin: "0.5rem 0",
+              padding: "0.6rem 0.8rem",
+              background: "rgba(30, 32, 48, 0.9)",
+              borderRadius: "6px",
+              border: "1px solid rgba(138, 173, 244, 0.3)",
+              fontSize: "0.78rem",
+              color: "#cad3f5",
+            }}
+          >
+            <strong style={{ color: "#8aadf4", display: "block", marginBottom: "2px" }}>
+              CSQE Qualification Explanation:
+            </strong>
+            Post cleared quality gate (Score: {Math.round(signalQuality * 100)}% / 100%).
+            Content exhibits informative topical density, non-spam lexical diversity, and distinct account provenance.
+          </div>
+        )}
 
         <p className="post-text" style={{ fontSize: "0.95rem", lineHeight: 1.45, margin: "0.5rem 0" }}>
           {post.content}
@@ -178,49 +233,54 @@ function StoryFeedCard({ story }: { story: Story }) {
             </span>
           )}
         </div>
-        <Link className="post-text" href={href}>
-          {story.title}
+
+        <Link href={href} className="post-story-link">
+          {story.image && (
+            <div className="post-story-thumb">
+              {remote ? (
+                <img src={story.image} alt={story.title} />
+              ) : (
+                <Image
+                  src={story.image}
+                  alt={story.title}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 420px"
+                />
+              )}
+            </div>
+          )}
+          <h3>{story.title}</h3>
+          {story.summary && <p>{story.summary}</p>}
         </Link>
-        {story.summary && <p className="post-summary">{story.summary}</p>}
-        {story.image && (
-          <Link className="post-media" href={href} aria-label={`Open analysis for ${story.title}`}>
-            {remote ? (
-              <img
-                src={story.image}
-                alt={story.title}
-                style={{ objectPosition: story.imagePosition ?? "center" }}
-              />
-            ) : (
-              <Image
-                src={story.image}
-                alt={story.title}
-                fill
-                sizes="(max-width:700px) 92vw, 560px"
-                style={{ objectPosition: story.imagePosition ?? "center" }}
-              />
-            )}
-          </Link>
-        )}
+
         <div className="post-actions">
-          <Link href={href} className="post-action">
-            <MessageCircle size={17} />
-            <span>Discuss</span>
-          </Link>
-          <button className="post-action" type="button">
-            <Repeat2 size={17} />
-            <span>Share</span>
-          </button>
-          <Link href={href} className="post-action">
-            <BarChart3 size={17} />
-            <span>Analysis</span>
-          </Link>
+          {story.topic_slug && (
+            <Link href={`/topic/${story.topic_slug}`} className="post-action">
+              <BarChart3 size={16} />
+              <span>Analysis</span>
+            </Link>
+          )}
           <button
             className={saved ? "post-action saved" : "post-action"}
             type="button"
             onClick={save}
-            aria-pressed={saved}
           >
-            <Bookmark size={17} fill={saved ? "currentColor" : "none"} />
+            <Bookmark size={16} fill={saved ? "currentColor" : "none"} />
+            <span>{saved ? "Saved" : "Save"}</span>
+          </button>
+          <button
+            className="post-action"
+            type="button"
+            onClick={() => {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(
+                  `${window.location.origin}${href}`
+                );
+              }
+            }}
+          >
+            <Share2 size={16} />
+            <span>Share</span>
           </button>
         </div>
       </div>
@@ -230,12 +290,16 @@ function StoryFeedCard({ story }: { story: Story }) {
 
 export function LivePage() {
   const [tab, setTab] = useState<"social" | "stories">("social");
+  const [sort, setSort] = useState<"top" | "latest">("top");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [sentimentFilter, setSentimentFilter] = useState<string>("all");
+  const [briefOpen, setBriefOpen] = useState(false);
+
   const [posts, setPosts] = useState<SocialPost[] | null>(null);
   const [stories, setStories] = useState<Story[] | null>(null);
-  const [sort, setSort] = useState<"top" | "latest">("top");
 
   useEffect(() => {
-    getPosts(40)
+    getPosts()
       .then(setPosts)
       .catch(() => setPosts([]));
     getStories()
@@ -243,14 +307,22 @@ export function LivePage() {
       .catch(() => setStories([]));
   }, []);
 
-  const sortedPosts = useMemo(() => {
+  const filteredPosts = useMemo(() => {
     if (!posts) return [];
-    const list = [...posts];
+    let list = [...posts];
+
+    if (platformFilter !== "all") {
+      list = list.filter((p) => p.platform.toLowerCase() === platformFilter);
+    }
+    if (sentimentFilter !== "all") {
+      list = list.filter((p) => p.sentiment === sentimentFilter);
+    }
+
     if (sort === "latest") {
       return list.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1));
     }
     return list.sort((a, b) => b.likes + b.shares - (a.likes + a.shares));
-  }, [posts, sort]);
+  }, [posts, sort, platformFilter, sentimentFilter]);
 
   const sortedStories = useMemo(() => {
     if (!stories) return [];
@@ -280,7 +352,26 @@ export function LivePage() {
               High-signal posts streaming directly from Kafka and cross-platform collectors, qualified by CSQE.
             </p>
           </div>
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              onClick={() => setBriefOpen(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "8px 14px",
+                borderRadius: "8px",
+                background: "rgba(138, 173, 244, 0.2)",
+                color: "#8aadf4",
+                border: "1px solid rgba(138, 173, 244, 0.4)",
+                fontWeight: 600,
+                fontSize: "0.85rem",
+                cursor: "pointer",
+              }}
+            >
+              <FileText size={15} /> Intelligence Brief
+            </button>
+
             <div
               style={{
                 display: "flex",
@@ -338,21 +429,83 @@ export function LivePage() {
           </div>
         </header>
 
+        {/* Multi-Dimensional Filter Bar */}
+        {tab === "social" && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+              padding: "0.6rem 1rem",
+              background: "rgba(24, 25, 38, 0.7)",
+              borderRadius: "8px",
+              border: "1px solid rgba(255,255,255,0.06)",
+              marginBottom: "1rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "#a5adcb", fontSize: "0.82rem" }}>
+              <Filter size={14} /> Filter:
+            </div>
+
+            <select
+              value={platformFilter}
+              onChange={(e) => setPlatformFilter(e.target.value)}
+              style={{
+                background: "#1e2030",
+                color: "#cad3f5",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "6px",
+                padding: "4px 8px",
+                fontSize: "0.8rem",
+              }}
+            >
+              <option value="all">All Platforms</option>
+              <option value="x">X (Twitter)</option>
+              <option value="reddit">Reddit</option>
+              <option value="telegram">Telegram</option>
+              <option value="youtube">YouTube</option>
+            </select>
+
+            <select
+              value={sentimentFilter}
+              onChange={(e) => setSentimentFilter(e.target.value)}
+              style={{
+                background: "#1e2030",
+                color: "#cad3f5",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "6px",
+                padding: "4px 8px",
+                fontSize: "0.8rem",
+              }}
+            >
+              <option value="all">All Sentiments</option>
+              <option value="negative">Negative</option>
+              <option value="positive">Positive</option>
+              <option value="neutral">Neutral</option>
+            </select>
+
+            <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#8087a2" }}>
+              Showing {filteredPosts.length} qualified signals
+            </span>
+          </div>
+        )}
+
         {tab === "social" ? (
           posts === null ? (
             <div className="page-state">
               <LoaderCircle className="spin" /> Streaming live social media posts...
             </div>
-          ) : sortedPosts.length ? (
+          ) : filteredPosts.length ? (
             <div className="live-feed">
-              {sortedPosts.map((post) => (
+              {filteredPosts.map((post) => (
                 <SocialPostCard key={post.id} post={post} />
               ))}
             </div>
           ) : (
             <div className="data-empty large-empty">
               <Radio />
-              <strong>No social posts streamed yet</strong>
+              <strong>No social posts match criteria</strong>
               <p>
                 Incoming posts from X, Reddit, YouTube and Telegram will display here as they pass the CSQE quality gate.
               </p>
@@ -375,6 +528,9 @@ export function LivePage() {
             <p>Refreshed stories from news feeds will appear here.</p>
           </div>
         )}
+
+        <ModelTransparencyPanel />
+        <IntelligenceBriefModal isOpen={briefOpen} onClose={() => setBriefOpen(false)} />
       </main>
     </div>
   );

@@ -20,12 +20,12 @@ class SarcasmDetector:
 
     positive_exaggerations = {
         "brilliant", "genius", "masterstroke", "wonderful", "amazing",
-        "spectacular", "greatest", "shandar", "zindabad", "best ever"
+        "spectacular", "greatest", "shandar", "zindabad", "best ever", "great job"
     }
 
     negative_reality = {
-        "ruined", "failed", "disaster", "broken", "worse", "corruption",
-        "useless", "scam", "nuksan", "barbaad", "lut gaye", "bakwas"
+        "ruin", "ruined", "ruining", "fail", "failed", "failing", "disaster", "broken", "worse",
+        "corruption", "useless", "scam", "nuksan", "barbaad", "lut gaye", "bakwas", "destroy", "collapsed"
     }
 
     def __init__(self):

@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     sentiment_provider: str = "auto"
     hf_token: str | None = None
     hf_sentiment_model: str = "airzipm/sentiment-analysis-muril-v2"
+    muril_model_checkpoint: str = "google/muril-base-cased"
+    sentimix_model_checkpoint: str = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+    embedding_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    node2vec_dimensions: int = 16
+    graphsage_hidden_dim: int = 16
     hf_inference_endpoint_url: str | None = None
     hf_safety_model: str = "Hate-speech-CNERG/indic-abusive-allInOne-MuRIL"
     safety_provider: str = "auto"
@@ -40,6 +45,21 @@ class Settings(BaseSettings):
     auto_ingestion_max_topics: int = 8
     auto_ingestion_max_items_per_platform: int = 100
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
+
+    @property
+    def model_registry(self) -> dict[str, str]:
+        return {
+            "multilingual": "MuRIL (" + self.muril_model_checkpoint + ")",
+            "sentiment": "SentiMix (" + self.sentimix_model_checkpoint + ")",
+            "sarcasm": "Sarcasm Polarity Clash",
+            "topic_model": "BERTopic",
+            "topic_representation": "c-TF-IDF",
+            "graph": "NetworkX",
+            "influence": "PageRank",
+            "node_embedding": "Node2Vec",
+            "graph_learning": "GraphSAGE",
+            "analyst": "RAG Analyst",
+        }
 
     @property
     def allowed_origins(self) -> list[str]:

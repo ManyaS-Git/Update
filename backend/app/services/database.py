@@ -10,6 +10,19 @@ from app.models.database import (
     StoryRecord,
     TopicRecord,
     NarrativeRecord,
+    PostRecord,
+    UserRecord,
+    SentimentRecord,
+    DemographicProfileRecord,
+    NetworkNodeRecord,
+    NetworkEdgeRecord,
+    SourceCommentRecord,
+    CommentAnalysisRecord,
+    IngestionJobRecord,
+    RiskSignalRecord,
+    InsightRecord,
+    IntelligenceBriefRecord,
+    CoordinationClusterRecord,
     engine,
     SessionLocal,
 )
@@ -40,10 +53,39 @@ def preview_analytics(title: str, category: str = "Analysis") -> dict:
     return empty_analytics(title)
 
 def init_database() -> None:
-
-    """Initializes tables cleanly."""
+    """Initializes tables cleanly and applies automatic column migrations."""
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
+        from sqlalchemy import text
+        try:
+            # Check topics columns
+            topic_cols = {row[1] for row in db.execute(text("PRAGMA table_info(topics)")).fetchall()}
+            if topic_cols:
+                if "model_name" not in topic_cols:
+                    db.execute(text("ALTER TABLE topics ADD COLUMN model_name VARCHAR(80) DEFAULT 'BERTopic'"))
+                if "representation_method" not in topic_cols:
+                    db.execute(text("ALTER TABLE topics ADD COLUMN representation_method VARCHAR(80) DEFAULT 'c-TF-IDF'"))
+
+            # Check users columns
+            user_cols = {row[1] for row in db.execute(text("PRAGMA table_info(users)")).fetchall()}
+            if user_cols:
+                if "pagerank_score" not in user_cols:
+                    db.execute(text("ALTER TABLE users ADD COLUMN pagerank_score FLOAT DEFAULT 0.0"))
+                if "node2vec_embedding_json" not in user_cols:
+                    db.execute(text("ALTER TABLE users ADD COLUMN node2vec_embedding_json TEXT DEFAULT '[]'"))
+                if "graphsage_embedding_json" not in user_cols:
+                    db.execute(text("ALTER TABLE users ADD COLUMN graphsage_embedding_json TEXT DEFAULT '[]'"))
+
+            # Check sentiments columns
+            sent_cols = {row[1] for row in db.execute(text("PRAGMA table_info(sentiments)")).fetchall()}
+            if sent_cols:
+                if "model_version" not in sent_cols:
+                    db.execute(text("ALTER TABLE sentiments ADD COLUMN model_version VARCHAR(80) DEFAULT '1.0.0'"))
+
+            db.commit()
+        except Exception:
+            db.rollback()
+
         if not db.get(PreferenceRecord, "notifications_enabled"):
             db.add(PreferenceRecord(key="notifications_enabled", value="false"))
             db.commit()

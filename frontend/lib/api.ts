@@ -1,4 +1,15 @@
-import type { Driver, PublicVoice, Story, Topic, TrendPoint, SocialPost } from "@/types";
+import type {
+  Driver,
+  PublicVoice,
+  Story,
+  Topic,
+  TrendPoint,
+  SocialPost,
+  InsightCard,
+  ModelTransparencyItem,
+  IntelligenceBrief,
+  PropagationData,
+} from "@/types";
 
 export const CLIENT_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
@@ -385,4 +396,71 @@ export const classifyComment = (text: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, context: "public discourse", platform: "manual" }),
+  });
+
+export const getInsights = (topicSlug?: string) =>
+  clientJson<InsightCard[]>(`/api/insights${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
+
+export const getInsightsSummary = () =>
+  clientJson<{
+    total_posts: number;
+    qualified_signals: number;
+    active_narratives: number;
+    emerging_narratives: number;
+    average_negative_sentiment: number;
+    risk_level: string;
+    influential_accounts_tracked: number;
+    cross_platform_coverage: string[];
+  }>("/api/insights/summary");
+
+export const getEmergingNarratives = () =>
+  clientJson<{
+    slug: string;
+    title: string;
+    status: string;
+    momentum_score: number;
+    tier: string;
+    velocity: number;
+    volume_acceleration: number;
+    cross_platform_score: number;
+    formula: string;
+  }[]>("/api/insights/emerging");
+
+export const getEmotionInsights = (topicSlug?: string) =>
+  clientJson<{
+    dominant: string;
+    distribution: Record<string, number>;
+    spikes: { emotion: string; percentage: number; message: string }[];
+    sample_size: number;
+  }>(`/api/insights/emotion${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
+
+export const getStanceInsights = (topicSlug?: string) =>
+  clientJson<{
+    support_pct: number;
+    oppose_pct: number;
+    neutral_pct: number;
+    unclear_pct: number;
+    total_analyzed: number;
+  }>(`/api/insights/stance${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
+
+export const getPropagationInsights = (topicSlug?: string) =>
+  clientJson<PropagationData>(`/api/insights/propagation${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
+
+export const getModelTransparency = () =>
+  clientJson<{ pipeline: ModelTransparencyItem[] }>("/api/insights/models");
+
+export const getIntelligenceBrief = (topicSlug?: string) =>
+  clientJson<IntelligenceBrief>(`/api/intelligence-brief${topicSlug ? `?topic_slug=${encodeURIComponent(topicSlug)}` : ""}`);
+
+export const queryAnalyst = (question: string, topicSlug: string = "global") =>
+  clientJson<{
+    answer: string;
+    evidence: string[];
+    confidence: "Low" | "Medium" | "High";
+    last_updated: string;
+    provider: string;
+  }>("/api/analyst/query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, topic_slug: topicSlug }),
   });

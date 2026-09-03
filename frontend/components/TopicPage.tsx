@@ -2,20 +2,24 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import {ArrowDownToLine,BarChart3,BriefcaseBusiness,ChevronRight,Clock3,Database,GraduationCap,Hash,Info,Languages,MapPin,MessageCircle,Radio,Scale,Share2,ShieldCheck,TrendingUp,UsersRound} from "lucide-react";
+import {ArrowDownToLine,BarChart3,BriefcaseBusiness,ChevronRight,Clock3,Database,FileText,GraduationCap,Hash,Info,Languages,MapPin,MessageCircle,Radio,Scale,Share2,ShieldCheck,TrendingUp,UsersRound} from "lucide-react";
+import { useState } from "react";
 import type {Topic} from "@/types";
 import {Sidebar} from "./Sidebar";import {Topbar} from "./Topbar";import {SentimentDonut,TrendChart} from "./TopicCharts";import {AIAnalyst} from "./AIAnalyst";import {NetworkPanel} from "./NetworkPanel";import {DataSlot} from "./DataSlot";
+import {ModelTransparencyPanel} from "./ModelTransparencyPanel";
+import {IntelligenceBriefModal} from "./IntelligenceBriefModal";
 
 const audienceIcons=[MapPin,Languages,UsersRound,Hash,BarChart3,MessageCircle];
 const driverIcons=[Scale,GraduationCap,BriefcaseBusiness,Database];
 
 export function TopicPage({topic}:{topic:Topic}){
+  const [briefOpen, setBriefOpen] = useState(false);
   const audience=[{title:"Geography",label:"Highest observed activity",value:topic.audience.geography},{title:"Language",label:"Dominant language",value:topic.audience.language},{title:"Age groups",label:"Likely most active",value:topic.audience.age,meta:`Confidence: ${topic.audience.ageConfidence}`},{title:"Interest groups",label:"Most active inferred",value:topic.audience.interests},{title:"Key topics",label:"Primary narratives",value:topic.audience.topics.join(", ")},{title:"Platforms",label:"Largest observed source",value:topic.audience.platform}];
   function download(){const text=`UPDATES Intelligence Brief\n${topic.title}\n\n${topic.insight||"No comments have been analysed for this story yet."}\n\n${topic.totalConversations.toLocaleString()} conversations analysed\n${topic.sentiment.negative}% opposing · ${topic.sentiment.neutral}% neutral · ${topic.sentiment.positive}% supportive\n\nEvidence and confidence labels apply.`;const url=URL.createObjectURL(new Blob([text],{type:"text/plain"}));const anchor=document.createElement("a");anchor.href=url;anchor.download=`updates-${topic.slug}-brief.txt`;anchor.click();URL.revokeObjectURL(url)}
   const remoteImage=Boolean(topic.image&&/^https?:\/\//.test(topic.image));
   return <div className="app-shell topic-shell"><Sidebar active="Live"/><main className="main"><Topbar compact/>
     <div className="breadcrumbs"><Link href="/">Home</Link><ChevronRight size={13}/><span>{topic.category??"Analysis"}</span><ChevronRight size={13}/><b>{topic.title}</b></div>
-    <header className="topic-header" data-slot="topic-summary" data-endpoint="GET /api/topics/{slug}"><div className="topic-title"><div className="topic-thumb">{remoteImage?<img src={topic.image} alt={topic.title}/>:<Image src={topic.image??"/images/real-data-check.jpg"} alt={topic.title} fill sizes="130px"/>}</div><div><h1>{topic.title}</h1><p>{topic.preview?"Story-specific preview analysis · live comments not collected yet":topic.subtitle}</p><div className="topic-meta">{topic.preview?<span className="preview-badge">Preview analysis</span>:<span className="live-tag"><Radio size={12}/> Live analysis</span>}<b>{topic.totalConversations.toLocaleString()}</b> public conversations analysed <i/> Updated {topic.updated}</div></div></div><div className="topic-actions"><button onClick={()=>navigator.clipboard?.writeText(location.href)}><Share2 size={16}/> Share</button><button onClick={download}><ArrowDownToLine size={16}/> Download report</button></div></header>
+    <header className="topic-header" data-slot="topic-summary" data-endpoint="GET /api/topics/{slug}"><div className="topic-title"><div className="topic-thumb">{remoteImage?<img src={topic.image} alt={topic.title}/>:<Image src={topic.image??"/images/real-data-check.jpg"} alt={topic.title} fill sizes="130px"/>}</div><div><h1>{topic.title}</h1><p>{topic.preview?"Story-specific preview analysis · live comments not collected yet":topic.subtitle}</p><div className="topic-meta">{topic.preview?<span className="preview-badge">Preview analysis</span>:<span className="live-tag"><Radio size={12}/> Live analysis</span>}<b>{topic.totalConversations.toLocaleString()}</b> public conversations analysed <i/> Updated {topic.updated}</div></div></div><div className="topic-actions"><button onClick={()=>navigator.clipboard?.writeText(location.href)}><Share2 size={16}/> Share</button><button onClick={()=>setBriefOpen(true)}><FileText size={16}/> Intelligence brief</button><button onClick={download}><ArrowDownToLine size={16}/> Download report</button></div></header>
     <div className="topic-grid top-grid">
       <section className="panel sentiment-panel" data-slot="sentiment-analysis" data-endpoint="GET /api/topics/{slug}/sentiment"><h2>{topic.preview?"Headline-tone preview":"Overall public sentiment"} <Info size={13}/></h2><SentimentDonut values={topic.sentiment}/>{topic.totalConversations>0&&<div className="sentiment-shift"><TrendingUp size={16}/><span><b>{topic.sentimentChange}% more opposing</b> conversation<br/>in the selected comparison window</span></div>}</section>
       <section className="panel insight-panel" data-slot="intelligence-brief" data-endpoint="GET /api/topics/{slug}/brief"><h2>AI Insight <Info size={13}/></h2><DataSlot name="ai-insight" endpoint="GET /api/topics/{slug}/brief" hasData={Boolean(topic.insight)}><blockquote>{topic.insight}</blockquote></DataSlot><Link href="/methodology">How this was calculated <ChevronRight size={13}/></Link></section>
@@ -28,6 +32,8 @@ export function TopicPage({topic}:{topic:Topic}){
     </div>
     <section className="panel trend-panel" data-slot="temporal-intelligence" data-endpoint="GET /api/topics/{slug}/trends"><div className="panel-heading"><div><h2>{topic.preview?"Illustrative signal trajectory":"Conversation volume over time"}</h2><p>{topic.preview?"Relative story-context preview · not measured conversation volume":"Qualified public conversation · dynamic analysis window"}</p></div><span className="rising"><TrendingUp size={14}/> {topic.preview?"Preview":"Dynamic status"}</span></div><TrendChart data={topic.trends}/></section>
     <AIAnalyst topicSlug={topic.slug}/><NetworkPanel network={topic.network}/>
+    <ModelTransparencyPanel />
+    <IntelligenceBriefModal topicSlug={topic.slug} isOpen={briefOpen} onClose={() => setBriefOpen(false)} />
     <footer className="topic-footer"><strong>{topic.preview?"Story-context preview":"API-backed intelligence"}</strong><span>{topic.preview?"Preview values are generated independently from this story’s title and category. They are low-confidence and will be replaced—not combined—with collected comment analysis.":"Every analytics module reflects comments attached to this topic only."}</span><Link href="/methodology">View methodology & data ethics</Link></footer>
   </main></div>
 }
