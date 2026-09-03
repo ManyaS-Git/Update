@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from app.core.config import get_settings
-from app.models.database import AnalysisRunRecord, StoryRecord, TopicRecord, get_db
+from app.models.database import AnalysisRunRecord, CommentAnalysisRecord, SourceCommentRecord, StoryRecord, TopicRecord, get_db
 from app.models.schemas import AIQuestion, AIResponse, AnalysisRequest, AnalysisRunResponse, ChatQuestion, ChatResponse
 from app.core.security import require_admin
 router=APIRouter(prefix="/api",tags=["analysis"])
@@ -38,6 +38,13 @@ def chat(payload:ChatQuestion,db:Session=Depends(get_db)):
     if topic and any(word in text for word in ("confidence","accurate","accuracy","geography","location","age","language","interest","demographic")):
         audience=topic.analytics.get("audience",{});confidence=topic.analytics.get("confidence",{});geo=audience.get("geography",{});age=audience.get("age_bracket",{});language=audience.get("language",{});distribution=language.get("distribution",{});dominant=max(distribution,key=distribution.get) if distribution else "Unavailable"
         return ChatResponse(answer=f"For this topic: geography is {geo.get('value','Unavailable')} ({geo.get('confidence','Unavailable')} confidence); likely age is {age.get('value','Unavailable')} ({age.get('confidence','Unavailable')} confidence); dominant language is {dominant} ({language.get('confidence','Unavailable')} confidence). These fields remain unavailable when source metadata does not support them—UPDATES does not invent demographics.",actions=[{"label":"Open analysis","href":f"/topic/{topic.slug}"},{"label":"Methodology","href":"/methodology"}],evidence=confidence.get("sources",[]))
+    if topic and any(phrase in text for phrase in ("why is","why has","driving","mainly discussing","people saying","public saying","emerging","develop","evidence","associated topic","influential")):
+        rows=db.execute(select(SourceCommentRecord,CommentAnalysisRecord).join(CommentAnalysisRecord,CommentAnalysisRecord.comment_id==SourceCommentRecord.id).where(SourceCommentRecord.topic_slug==topic.slug).order_by(CommentAnalysisRecord.influence_score.desc(),SourceCommentRecord.published_at.desc()).limit(40)).all()
+        if rows:
+            query_terms={word for word in text.replace("?","").split() if len(word)>3};ranked=sorted(rows,key=lambda row:(sum(term in row[0].text.lower() for term in query_terms),row[1].influence_score),reverse=True)[:3];analytics=topic.analytics;drivers=analytics.get("drivers") or [];themes=", ".join(driver.get("title","") for driver in drivers[:3] if driver.get("title")) or "no stable recurring theme yet";platforms=sorted({comment.platform for comment,_ in rows});quotes=[" ".join(comment.text.split())[:180] for comment,_ in ranked]
+            answer=f"For {topic.title}, the strongest retrieved themes are {themes}. This answer is grounded in {len(rows)} recent topic-scoped records from {', '.join(platforms)}. Representative evidence is listed below; it is not inferred from the headline alone."
+            return ChatResponse(answer=answer,actions=[{"label":"Open full analysis","href":f"/topic/{topic.slug}"},{"label":"Inspect sources","href":"/sources"}],evidence=quotes)
+        return ChatResponse(answer=f"I can’t give an evidence-grounded explanation for why {topic.title} is emerging yet because no qualified platform comments are attached to this topic. I won’t infer public reaction from the headline alone.",actions=[{"label":"Check source setup","href":"/sources"},{"label":"Methodology","href":"/methodology"}],evidence=["0 retrieved topic-scoped comments"])
     if any(word in text for word in ("source","api","data from","connector")):
         return ChatResponse(answer="You can inspect every news, social and model connector on the Sources page. It shows which APIs are configured, recent ingestion jobs and evidence limitations.",actions=[{"label":"Open sources","href":"/sources"}],evidence=["Connector status endpoint"])
     if any(word in text for word in ("privacy","collect","personal data","safe")):

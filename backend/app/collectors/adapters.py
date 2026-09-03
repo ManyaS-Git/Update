@@ -22,7 +22,8 @@ class OfficialCollector(BaseCollector):
     def require(self)->None:
         if not self.configured: raise CollectorError(f"{self.platform} credentials are not configured")
     def normalize(self,raw:dict,topic_id:str)->NormalizedContent:
-        return NormalizedContent(platform=self.platform,external_id=str(raw["id"]),topic_id=topic_id,author_id=raw.get("author_id"),text=raw.get("text","").strip(),timestamp=_time(raw.get("created_at")),parent_id=raw.get("parent_id"),engagement=raw.get("engagement",{}),public_profile_signals=raw.get("public_signals",{}),raw_metadata=raw.get("metadata",{}))
+        metadata=raw.get("metadata",{});text=raw.get("text","").strip()
+        return NormalizedContent(platform=self.platform,external_id=str(raw["id"]),topic_id=topic_id,author_id=raw.get("author_id"),author_name=raw.get("author_name"),text=text,timestamp=_time(raw.get("created_at")),parent_id=raw.get("parent_id"),language=raw.get("language") or metadata.get("language_api"),url=raw.get("url") or metadata.get("url"),is_verified=raw.get("is_verified") if "is_verified" in raw else metadata.get("verified"),hashtags=raw.get("hashtags") or [],mentions=raw.get("mentions") or [],engagement=raw.get("engagement",{}),public_profile_signals=raw.get("public_signals",{}),raw_metadata=metadata)
     async def request(self,method:str,url:str,**kwargs)->dict:
         parsed=urlparse(url);host=(parsed.hostname or "").lower();allowed={"api.x.com","www.googleapis.com","www.reddit.com","oauth.reddit.com","graph.facebook.com","graph.instagram.com"}
         if parsed.scheme!="https" or host not in allowed:raise CollectorError(f"Blocked unexpected collector URL host: {host or 'missing'}")

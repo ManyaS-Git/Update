@@ -21,9 +21,15 @@ class NormalizedContent(BaseModel):
     external_id: str
     topic_id: str
     author_id: str | None = None
+    author_name: str | None = None
     text: str
     timestamp: datetime
     parent_id: str | None = None
+    language: str | None = None
+    url: str | None = None
+    is_verified: bool | None = None
+    hashtags: list[str] = Field(default_factory=list)
+    mentions: list[str] = Field(default_factory=list)
     engagement: dict[str, int] = Field(default_factory=dict)
     public_profile_signals: dict[str, str] = Field(default_factory=dict)
     raw_metadata: dict = Field(default_factory=dict)

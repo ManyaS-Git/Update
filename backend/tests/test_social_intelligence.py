@@ -4,6 +4,8 @@ from app.services.intelligence import CommentIntelligenceService
 from app.models.schemas import CommentInput
 from app.services.database import preview_analytics
 from app.services.ingestion import _hash_author
+from app.services.csqe import CSQEService
+from app.collectors.adapters import RedditCollector
 import hashlib
 
 client=TestClient(app)
@@ -48,6 +50,17 @@ def test_signal_quality_is_returned_with_classification():
     high=client.post("/api/classify",json={"text":"The reservation policy affects student education and equal opportunity."}).json()
     assert low["signal_classification"]=="LOW_SIGNAL"
     assert high["signal_quality"]>low["signal_quality"]
+
+def test_signal_quality_uses_dynamic_story_context_not_reservation_terms():
+    engine=CSQEService()
+    relevant=engine.qualify("The cyclone warning affects coastal Odisha districts and fishing communities.","Odisha cyclone warning and coastal evacuation")
+    unrelated=engine.qualify("The reservation policy affects college admission seats.","Odisha cyclone warning and coastal evacuation")
+    assert relevant.signal_quality>unrelated.signal_quality
+
+def test_normalized_platform_contract_preserves_optional_real_fields():
+    item=RedditCollector().normalize({"id":"abc","text":"Public post","created_at":"2026-01-01T00:00:00Z","author_id":"u1","author_name":"PublicUser","language":"en","url":"https://www.reddit.com/r/news/comments/abc","is_verified":False,"hashtags":["news"],"mentions":[],"engagement":{"likes":4,"comments":2,"views":10}},"topic")
+    assert item.author_name=="PublicUser" and item.url and item.language=="en"
+    assert item.engagement["views"]==10
 
 def test_comment_summary_has_privacy_disclosure():
     summary=client.get("/api/comments/summary").json()
