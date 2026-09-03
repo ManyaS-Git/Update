@@ -1,9 +1,16 @@
-import {reservationTopic} from "./demo-data";
+import {reservationTopic,stories} from "./demo-data";
 import type {Driver,PublicVoice,Story,Topic,TrendPoint} from "@/types";
 
 const API_URL=process.env.NEXT_PUBLIC_API_URL;
 export const CLIENT_API_URL=process.env.NEXT_PUBLIC_API_URL??"http://127.0.0.1:8001";
 const titleCase=(value:string)=>value.toLowerCase().replace(/(^|_)(\w)/g,(_,space,letter)=>`${space?" ":""}${letter.toUpperCase()}`);
+const slugToTitle=(slug:string)=>slug.replace(/-/g," ").replace(/\b\w/g,letter=>letter.toUpperCase());
+
+/** Builds a backend-ready preview topic so unknown slugs render placeholders instead of a 404. */
+function buildPreviewTopic(slug:string):Topic{
+  const story=stories.find(item=>item.topic_slug===slug);
+  return {slug,title:story?.title??slugToTitle(slug),subtitle:"Public sentiment & conversation analysis",image:story?.image,category:story?.category??"Analysis",preview:true,totalConversations:0,updated:"awaiting collection",sentiment:{negative:0,neutral:0,positive:0},sentimentChange:0,insight:"",audience:{geography:"",language:"",age:"",ageConfidence:"",interests:"",topics:[],platform:""},drivers:[],voices:[],trends:[],confidence:{sources:[],qualified:0,lowSignal:0,level:""},network:{nodes:[],edges:[]}};
+}
 
 async function getJson<T>(path:string):Promise<T>{
   if(!API_URL)throw new Error("API URL is not configured");
@@ -24,8 +31,7 @@ type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:s
 
 /** Aggregates the independent FastAPI endpoints into the dashboard model. */
 export async function getTopic(slug:string):Promise<Topic|null>{
-  if(slug!==reservationTopic.slug&&!API_URL)return null;
-  if(!API_URL)return reservationTopic;
+  if(!API_URL)return slug===reservationTopic.slug?reservationTopic:buildPreviewTopic(slug);
   try{
     const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
       getJson<Meta>(`/api/topics/${slug}`),getJson<Sentiment>(`/api/topics/${slug}/sentiment`),
@@ -40,7 +46,7 @@ export async function getTopic(slug:string):Promise<Topic|null>{
     const mappedVoices:PublicVoice[]=voices.map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
     const rawAge=audience.age_bracket.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
     return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,preview:Boolean(meta.demo&&meta.total_conversations===0),totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,language,age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),topics:audience.key_topics??[],platform:audience.leading_platform??""},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
-  }catch{return slug===reservationTopic.slug?reservationTopic:null}
+  }catch{return slug===reservationTopic.slug?reservationTopic:buildPreviewTopic(slug)}
 }
 
 export async function askAnalyst(topicSlug:string,question:string){
