@@ -21,7 +21,7 @@ def chat(payload:ChatQuestion,db:Session=Depends(get_db)):
     if text in {"hi","hello","hey","hey there","namaste","hii","hello there"}:
         context=f" You’re viewing “{story.title}”." if story else (f" You’re viewing “{topic.title}”." if topic else "")
         return ChatResponse(answer=f"Hi! I’m your UPDATES news assistant.{context} Ask me to explain this story, its sentiment or confidence, find coverage on a subject, or show the latest headlines.",actions=[{"label":"Latest news","href":"/live"},{"label":"How analysis works","href":"/methodology"}])
-    if any(word in text for word in ("latest","news","trending","today")):
+    if text=="news" or any(word in text for word in ("latest","trending","today")):
         titles="\n".join(f"{index}. {item.title}" for index,item in enumerate(latest,1))
         return ChatResponse(answer=f"These are the three newest indexed stories:\n{titles}",actions=[{"label":"Open live feed","href":"/live"},{"label":"View top stories","href":"/#stories"}],evidence=[f"{len(latest)} newest records ordered by publication time"])
     if any(word in text for word in ("this story","this article","explain","summary","summarise","summarize","what is this")) and (story or topic):

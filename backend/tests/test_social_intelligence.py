@@ -27,6 +27,16 @@ def test_hate_safety_label():
     result=client.post("/api/classify",json={"text":"Those people are subhuman and should go back"}).json()
     assert result["safety"]=="hate"
 
+def test_positive_hinglish_is_not_mislabeled_as_toxic():
+    result=client.post("/api/classify",json={"text":"Yeh policy bahut achhi hai","context":"reservation policy"}).json()
+    assert result["language"]=="hinglish"
+    assert result["sentiment"]=="positive" and result["stance"]=="supportive"
+    assert result["safety"]=="normal"
+
+def test_explicit_toxic_cue_remains_toxic():
+    result=client.post("/api/classify",json={"text":"Shut up, you idiot"}).json()
+    assert result["safety"]=="toxic"
+
 def test_explicit_metadata_only_for_sensitive_inference():
     unknown=client.post("/api/classify",json={"text":"I am a student and support equality"}).json()
     known=client.post("/api/classify",json={"text":"I support equality","public_signals":{"location":"Delhi NCR","age_bracket":"18-24"}}).json()
@@ -98,3 +108,8 @@ def test_security_headers_and_input_validation():
 def test_oversized_request_is_rejected_before_parsing():
     response=client.post("/api/classify",content=b"x"*1_000_001,headers={"content-type":"application/json"})
     assert response.status_code==413
+
+def test_chatbot_topic_search_is_not_swallowed_by_latest_news_intent():
+    result=client.post("/api/chat",json={"message":"Find reservation news","page_path":"/"}).json()
+    assert "relevant stories" in result["answer"]
+    assert any("reservation" in action["href"] for action in result["actions"])

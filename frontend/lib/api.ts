@@ -1,12 +1,11 @@
 import {reservationTopic} from "./demo-data";
 import type {Driver,EmergingSnapshot,PublicVoice,Story,Topic,TrendPoint} from "@/types";
 
-const API_URL=process.env.NEXT_PUBLIC_API_URL;
-export const CLIENT_API_URL=process.env.NEXT_PUBLIC_API_URL??"http://127.0.0.1:8001";
+const API_URL=process.env.NEXT_PUBLIC_API_URL??(typeof window==="undefined"?(process.env.BACKEND_API_URL??"http://127.0.0.1:8001"):"");
+export const CLIENT_API_URL=API_URL;
 const titleCase=(value:string)=>value.toLowerCase().replace(/(^|_)(\w)/g,(_,space,letter)=>`${space?" ":""}${letter.toUpperCase()}`);
 
 async function getJson<T>(path:string):Promise<T>{
-  if(!API_URL)throw new Error("API URL is not configured");
   const response=await fetch(`${API_URL}${path}`,{cache:"no-store"});
   if(!response.ok)throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
@@ -24,8 +23,6 @@ type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:s
 
 /** Aggregates the independent FastAPI endpoints into the dashboard model. */
 export async function getTopic(slug:string):Promise<Topic|null>{
-  if(slug!==reservationTopic.slug&&!API_URL)return null;
-  if(!API_URL)return reservationTopic;
   try{
     const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
       getJson<Meta>(`/api/topics/${slug}`),getJson<Sentiment>(`/api/topics/${slug}/sentiment`),

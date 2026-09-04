@@ -92,7 +92,7 @@ class MuRILSentimentProvider:
         if not mapped:raise ValueError(f"Unsupported sentiment label from model: {label}")
         return SentimentPrediction(mapped,float(best["score"]),model)
     def _heuristic(self,text:str)->SentimentPrediction:
-        lowered=text.lower();positive=("good","great","support","fair","justice","right","achi","accha","sahi","samarthan","ज़रूरी","अच्छा","समर्थन");negative=("bad","wrong","unfair","hate","against","galat","bekar","नफ़रत","गलत","विरोध")
+        lowered=text.lower();positive=("good","great","support","fair","justice","right","achi","achhi","accha","sahi","samarthan","bahut achhi","ज़रूरी","अच्छा","समर्थन");negative=("bad","wrong","unfair","hate","against","galat","bekar","नफ़रत","गलत","विरोध")
         contains=lambda term:bool(re.search(rf"(?<![a-z]){re.escape(term)}(?![a-z])",lowered)) if term.isascii() else term in lowered
         pos=sum(contains(word) for word in positive);neg=sum(contains(word) for word in negative)
         if pos>neg:return SentimentPrediction("positive",min(.9,.58+.08*pos),"multilingual-heuristic-fallback")
@@ -102,7 +102,7 @@ class MuRILSentimentProvider:
 DEVANAGARI=re.compile(r"[\u0900-\u097f]")
 LATIN=re.compile(r"[A-Za-z]")
 HINGLISH={"hai","hain","ho","nahi","kya","kyu","kyun","acha","accha","sahi","galat","hume","humko","main","tum","aap","yeh","yaar","bahut","bilkul","karna","karte","karo","chahiye","aur","lekin","bewakoof","bakwas","samarthan","virodh"}
-SUPPORT={"support","agree","necessary","justice","representation","equal opportunity","samarthan","sahi","zaroori","समर्थन","सही","न्याय","ज़रूरी"}
+SUPPORT={"support","agree","necessary","justice","representation","equal opportunity","samarthan","sahi","zaroori","achi","achhi","accha","good","great","समर्थन","सही","न्याय","ज़रूरी","अच्छा","अच्छी"}
 OPPOSE={"oppose","against","unfair","remove","wrong","galat","virodh","नहीं चाहिए","गलत","विरोध"}
 HATE={"subhuman","exterminate","kill all","go back","जाति की गाली","मार डालो"}
 TOXIC={"idiot","stupid","moron","shut up","bewakoof","bakwas","बेवकूफ","बकवास"}
@@ -137,7 +137,7 @@ class MuRILSafetyProvider:
     def __init__(self,settings:Settings|None=None):self.settings=settings or get_settings()
     def predict(self,text:str)->SafetyPrediction:
         heuristic_label,heuristic_score,heuristic_evidence=classify_safety(text)
-        if heuristic_label=="hate":return SafetyPrediction("hate",heuristic_score,heuristic_evidence,"hate-cue-plus-indic-safety-policy")
+        if heuristic_label in {"hate","toxic"}:return SafetyPrediction(heuristic_label,heuristic_score,heuristic_evidence,"explicit-cue-plus-indic-safety-policy")
         provider=self.settings.safety_provider
         if provider in {"auto","local"} and importlib.util.find_spec("transformers") and importlib.util.find_spec("torch"):
             try:
@@ -152,7 +152,10 @@ class MuRILSafetyProvider:
                 mapped="toxic" if label in {"abusive","label_1"} else "normal" if label in {"normal","label_0"} else None
                 if not mapped:raise ValueError(f"Unsupported safety label from model: {label}")
                 MuRILSafetyProvider._last_active="local_indic_muril";MuRILSafetyProvider._last_error=None
-                return SafetyPrediction(mapped,float(best["score"]),[f"Indic MuRIL safety label: {label}"],self.settings.hf_safety_model)
+                score=float(best["score"])
+                if mapped=="toxic" and score<.75:
+                    return SafetyPrediction("normal",1-score,[f"Indic MuRIL abusive score {score:.3f} below 0.750 decision threshold"],self.settings.hf_safety_model)
+                return SafetyPrediction(mapped,score,[f"Indic MuRIL safety label: {label}"],self.settings.hf_safety_model)
             except Exception as exc:
                 MuRILSafetyProvider._last_error=str(exc)
                 if provider=="local":raise
@@ -176,6 +179,7 @@ class CommentIntelligenceService:
     def analyse(self,item:CommentInput)->CommentIntelligence:
         prediction=self.sentiment.predict(item.text);language,lang_conf,lang_ev=detect_language(item.text);stance,stance_conf,stance_ev=classify_stance(item.text,item.context)
         if stance=="opposing" and stance_conf>=.7 and prediction.label=="positive":prediction=SentimentPrediction("negative",max(.7,prediction.score),f"{prediction.model}+explicit-stance-calibration")
+        if stance=="supportive" and stance_conf>=.67 and prediction.label!="positive":prediction=SentimentPrediction("positive",max(.68,prediction.score),f"{prediction.model}+explicit-stance-calibration")
         safety_prediction=self.safety.predict(item.text);safety,safety_conf,safety_ev=safety_prediction.label,safety_prediction.score,safety_prediction.evidence;sarcasm=self.sarcasm.predict(item.text);interest_labels,interest_ev=interests(item.text,item.public_signals);influence_score,influence_ev=influence(item.engagement);signal=self.csqe.qualify(item.text,item.context)
         geography=item.public_signals.get("location") or None;age=item.public_signals.get("age_bracket") or None
         return CommentIntelligence(sentiment=prediction.label,sentiment_score=prediction.score,stance=stance,emotion="support" if stance=="supportive" else "concern" if stance=="opposing" else "questioning" if stance=="questioning" else "uncertain",safety=safety,sarcasm_detected=sarcasm.detected if sarcasm else None,sarcasm_confidence=sarcasm.score if sarcasm else None,sarcasm_model_name=sarcasm.model if sarcasm else None,language=language,interests=interest_labels,geography=geography,age_bracket=age,influence_score=influence_score,confidence={"sentiment":round(prediction.score,3),"language":lang_conf,"stance":stance_conf,"safety":safety_conf,"sarcasm":round(sarcasm.score,3) if sarcasm else 0,"geography":.88 if geography else 0,"age":.75 if age else 0,"interests":min(.9,.45+.1*len(interest_labels)),"influence":.9,"signal_quality":signal.signal_quality},evidence={"language":lang_ev,"stance":stance_ev,"safety":safety_ev,"sarcasm":["external validated inference endpoint"] if sarcasm else ["unavailable: no validated sarcasm model configured"],"interests":interest_ev,"influence":influence_ev,"geography":["public profile/record metadata"] if geography else ["not inferred without explicit public evidence"],"age":["explicit broad age metadata"] if age else ["not inferred from writing style"],"signal_quality":[signal.reason]},model_name=prediction.model,safety_model_name=safety_prediction.model,signal_quality=signal.signal_quality,signal_classification=signal.classification)
