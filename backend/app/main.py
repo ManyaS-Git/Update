@@ -39,7 +39,16 @@ async def lifespan(_:FastAPI):
 
 app=FastAPI(title=settings.app_name,version="1.0.0",description="Evidence-backed public conversation intelligence platform",lifespan=lifespan)
 app.middleware("http")(security_middleware)
-app.add_middleware(CORSMiddleware,allow_origins=settings.allowed_origins,allow_credentials=True,allow_methods=["GET","POST","PUT","DELETE","OPTIONS"],allow_headers=["Content-Type","X-Admin-Key"])
+origins = settings.allowed_origins
+allow_all = "*" in origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if allow_all else origins,
+    allow_origin_regex=None if allow_all else r"https://.*\.vercel\.app",
+    allow_credentials=not allow_all,
+    allow_methods=["GET","POST","PUT","DELETE","OPTIONS"],
+    allow_headers=["Content-Type","X-Admin-Key"],
+)
 app.include_router(topics_router);app.include_router(content_router);app.include_router(intelligence_router);app.include_router(analysis_router);app.include_router(learning_router);app.include_router(infrastructure_router);app.include_router(emerging_router)
 
 @app.get("/health")

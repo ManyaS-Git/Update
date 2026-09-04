@@ -3,13 +3,32 @@
 import Image from "next/image";
 import Link from "next/link";
 import {ArrowDownToLine,BarChart3,BriefcaseBusiness,ChevronRight,Clock3,Database,GraduationCap,Hash,Info,Languages,MapPin,MessageCircle,Radio,Scale,Share2,ShieldCheck,TrendingUp,UsersRound} from "lucide-react";
+import {useEffect, useState} from "react";
 import type {Topic} from "@/types";
+import {fetchTopicClient} from "@/lib/api";
 import {Sidebar} from "./Sidebar";import {Topbar} from "./Topbar";import {SentimentDonut,TrendChart} from "./TopicCharts";import {AIAnalyst} from "./AIAnalyst";import {NetworkPanel} from "./NetworkPanel";import {DataSlot} from "./DataSlot";
 
 const audienceIcons=[MapPin,Languages,UsersRound,Hash,BarChart3,MessageCircle];
 const driverIcons=[Scale,GraduationCap,BriefcaseBusiness,Database];
 
-export function TopicPage({topic}:{topic:Topic}){
+export function TopicPage({topic: initialTopic}:{topic:Topic}){
+  const [topic, setTopic] = useState<Topic>(initialTopic);
+
+  useEffect(() => {
+    setTopic(initialTopic);
+  }, [initialTopic]);
+
+  useEffect(() => {
+    let active = true;
+    if (initialTopic.preview || initialTopic.totalConversations === 0) {
+      fetchTopicClient(initialTopic.slug).then(fresh => {
+        if (active && fresh && (fresh.totalConversations > 0 || !fresh.preview)) {
+          setTopic(fresh);
+        }
+      }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [initialTopic.slug, initialTopic.preview, initialTopic.totalConversations]);
   const signalOnly=topic.analysisScope==="public_attention_signals";const metricLabel=topic.metricLabel??"public conversations analysed";
   const audience=[{title:"Geography",label:"Highest observed activity",value:topic.audience.geography,meta:`Confidence: ${topic.audience.geographyConfidence??"Unavailable"}`},{title:"Language",label:"Dominant language",value:topic.audience.language,meta:`Confidence: ${topic.audience.languageConfidence??"Unavailable"}`},{title:"Age groups",label:"Most active when disclosed",value:topic.audience.age,meta:`Confidence: ${topic.audience.ageConfidence}`},{title:"Interest groups",label:"Most active inferred",value:topic.audience.interests,meta:`Confidence: ${topic.audience.interestsConfidence??"Unavailable"}`},{title:"Key topics",label:"Primary narratives",value:topic.audience.topics.join(", "),meta:`Confidence: ${topic.audience.topicsConfidence??"Unavailable"}`},{title:"Platforms",label:"Largest observed source",value:topic.audience.platform,meta:`Confidence: ${topic.audience.platformConfidence??"Unavailable"}`}];
   function download(){const text=`UPDATES Intelligence Brief\n${topic.title}\n\n${topic.insight||"No comments have been analysed for this story yet."}\n\n${topic.totalConversations.toLocaleString()} ${metricLabel}\n${topic.sentiment.negative}% opposing · ${topic.sentiment.neutral}% neutral · ${topic.sentiment.positive}% supportive\n\nEvidence and confidence labels apply.`;const url=URL.createObjectURL(new Blob([text],{type:"text/plain"}));const anchor=document.createElement("a");anchor.href=url;anchor.download=`updates-${topic.slug}-brief.txt`;anchor.click();URL.revokeObjectURL(url)}

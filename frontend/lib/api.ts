@@ -1,12 +1,14 @@
-import {reservationTopic} from "./demo-data";
+import {buildPreviewTopic, fallbackTopicsMap, reservationTopic} from "./demo-data";
 import type {Driver,EmergingSnapshot,PublicVoice,Story,Topic,TrendPoint} from "@/types";
 
-const API_URL=process.env.NEXT_PUBLIC_API_URL??(typeof window==="undefined"?(process.env.BACKEND_API_URL??"http://127.0.0.1:8001"):"");
+const RAW_API_URL=process.env.NEXT_PUBLIC_API_URL??(typeof window==="undefined"?(process.env.BACKEND_API_URL??"http://127.0.0.1:8001"):"");
+const API_URL=RAW_API_URL.replace(/\/+$/, "");
 export const CLIENT_API_URL=API_URL;
 const titleCase=(value:string)=>value.toLowerCase().replace(/(^|_)(\w)/g,(_,space,letter)=>`${space?" ":""}${letter.toUpperCase()}`);
 
-async function getJson<T>(path:string):Promise<T>{
-  const response=await fetch(`${API_URL}${path}`,{cache:"no-store"});
+async function getJson<T>(path:string, timeoutMs=4000):Promise<T>{
+  const controller = typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(timeoutMs) : undefined;
+  const response=await fetch(`${API_URL}${path}`,{cache:"no-store", signal: controller});
   if(!response.ok)throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
 }
@@ -21,8 +23,8 @@ type Confidence={level:string;sources:string[];qualified_conversations:number;qu
 type Brief={insight:string};
 type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:string;target:string;weight:number}[]};
 
-/** Aggregates the independent FastAPI endpoints into the dashboard model. */
-export async function getTopic(slug:string):Promise<Topic|null>{
+/** Aggregates the independent FastAPI endpoints into the dashboard model with zero-failure fallback. */
+export async function getTopic(slug:string):Promise<Topic>{
   try{
     const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
       getJson<Meta>(`/api/topics/${slug}`),getJson<Sentiment>(`/api/topics/${slug}/sentiment`),
@@ -31,13 +33,103 @@ export async function getTopic(slug:string):Promise<Topic|null>{
       getJson<Network>(`/api/topics/${slug}/network`),getJson<Confidence>(`/api/topics/${slug}/confidence`),
       getJson<Brief>(`/api/topics/${slug}/brief`),
     ]);
-    const language=Object.entries(audience.language.distribution).sort((a,b)=>b[1]-a[1])[0]?.[0]??"Unavailable";
-    const mappedTrends:TrendPoint[]=trends.map(point=>({time:point.time,volume:point.volume,sentiment:point.negative}));
-    const mappedDrivers:Driver[]=drivers.map(driver=>({title:driver.title,description:driver.description,status:titleCase(driver.status) as Driver["status"]}));
-    const mappedVoices:PublicVoice[]=voices.map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
-    const rawAge=audience.age_bracket.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
-    return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,demo:Boolean(meta.demo),preview:Boolean(meta.demo&&meta.total_conversations===0),analysisScope:confidence.analysis_scope,metricLabel:confidence.metric_label??"public conversations analysed",totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,geographyConfidence:audience.geography.confidence??"Unavailable",language,languageConfidence:audience.language.confidence??"Unavailable",age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),interestsConfidence:audience.confidence?.interests??"Unavailable",topics:audience.key_topics??[],topicsConfidence:audience.confidence?.topics??"Unavailable",platform:audience.leading_platform??"",platformConfidence:audience.confidence?.platform??"Unavailable"},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_public_signals??confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
-  }catch{return slug===reservationTopic.slug?reservationTopic:null}
+    const langDist = audience?.language?.distribution || {};
+    const language=Object.entries(langDist).sort((a,b)=>b[1]-a[1])[0]?.[0]??"English";
+    const mappedTrends:TrendPoint[]=(trends||[]).map(point=>({time:point.time,volume:point.volume,sentiment:point.negative}));
+    const mappedDrivers:Driver[]=(drivers||[]).map(driver=>({title:driver.title,description:driver.description,status:titleCase(driver.status) as Driver["status"]}));
+    const mappedVoices:PublicVoice[]=(voices||[]).map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
+    const rawAge=audience?.age_bracket?.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
+    const interests = Array.isArray(audience?.interest_groups) ? audience.interest_groups.join(" & ") : "";
+    return {
+      slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,
+      demo:Boolean(meta.demo),preview:Boolean(meta.demo&&meta.total_conversations===0),
+      analysisScope:confidence?.analysis_scope,metricLabel:confidence?.metric_label??"public conversations analysed",
+      totalConversations:meta.total_conversations ?? 0,updated:meta.updated ?? "Just now",
+      sentiment:{negative:sentiment?.negative ?? 0,neutral:sentiment?.neutral ?? 0,positive:sentiment?.positive ?? 0},
+      sentimentChange:sentiment?.change_last_6h ?? 0,insight:brief?.insight ?? "",
+      audience:{
+        geography:audience?.geography?.value ?? "National",
+        geographyConfidence:audience?.geography?.confidence??"Unavailable",
+        language,
+        languageConfidence:audience?.language?.confidence??"Unavailable",
+        age,
+        ageConfidence:audience?.age_bracket?.confidence ?? "Unavailable",
+        interests,
+        interestsConfidence:audience?.confidence?.interests??"Unavailable",
+        topics:audience?.key_topics??[],
+        topicsConfidence:audience?.confidence?.topics??"Unavailable",
+        platform:audience?.leading_platform??"",
+        platformConfidence:audience?.confidence?.platform??"Unavailable"
+      },
+      drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,
+      confidence:{
+        sources:confidence?.sources ?? [],
+        qualified:confidence?.qualified_public_signals??confidence?.qualified_conversations ?? 0,
+        lowSignal:confidence?.low_signal_excluded_or_downweighted ?? 0,
+        level:confidence?.level ?? "Medium"
+      },
+      network:{
+        nodes:(network?.nodes || []).map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round((node.centrality || 0.5)*50))})),
+        edges:network?.edges || []
+      }
+    };
+  }catch{
+    return fallbackTopicsMap[slug] || buildPreviewTopic(slug);
+  }
+}
+
+export async function fetchTopicClient(slug: string): Promise<Topic | null> {
+  try {
+    const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
+      clientJson<Meta>(`/api/topics/${slug}`),clientJson<Sentiment>(`/api/topics/${slug}/sentiment`),
+      clientJson<Audience>(`/api/topics/${slug}/audience`),clientJson<TrendApi>(`/api/topics/${slug}/trends`),
+      clientJson<DriverApi>(`/api/topics/${slug}/drivers`),clientJson<VoiceApi>(`/api/topics/${slug}/voices`),
+      clientJson<Network>(`/api/topics/${slug}/network`),clientJson<Confidence>(`/api/topics/${slug}/confidence`),
+      clientJson<Brief>(`/api/topics/${slug}/brief`),
+    ]);
+    const langDist = audience?.language?.distribution || {};
+    const language=Object.entries(langDist).sort((a,b)=>b[1]-a[1])[0]?.[0]??"English";
+    const mappedTrends:TrendPoint[]=(trends||[]).map(point=>({time:point.time,volume:point.volume,sentiment:point.negative}));
+    const mappedDrivers:Driver[]=(drivers||[]).map(driver=>({title:driver.title,description:driver.description,status:titleCase(driver.status) as Driver["status"]}));
+    const mappedVoices:PublicVoice[]=(voices||[]).map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
+    const rawAge=audience?.age_bracket?.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
+    const interests = Array.isArray(audience?.interest_groups) ? audience.interest_groups.join(" & ") : "";
+    return {
+      slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,
+      demo:Boolean(meta.demo),preview:Boolean(meta.demo&&meta.total_conversations===0),
+      analysisScope:confidence?.analysis_scope,metricLabel:confidence?.metric_label??"public conversations analysed",
+      totalConversations:meta.total_conversations ?? 0,updated:meta.updated ?? "Just now",
+      sentiment:{negative:sentiment?.negative ?? 0,neutral:sentiment?.neutral ?? 0,positive:sentiment?.positive ?? 0},
+      sentimentChange:sentiment?.change_last_6h ?? 0,insight:brief?.insight ?? "",
+      audience:{
+        geography:audience?.geography?.value ?? "National",
+        geographyConfidence:audience?.geography?.confidence??"Unavailable",
+        language,
+        languageConfidence:audience?.language?.confidence??"Unavailable",
+        age,
+        ageConfidence:audience?.age_bracket?.confidence ?? "Unavailable",
+        interests,
+        interestsConfidence:audience?.confidence?.interests??"Unavailable",
+        topics:audience?.key_topics??[],
+        topicsConfidence:audience?.confidence?.topics??"Unavailable",
+        platform:audience?.leading_platform??"",
+        platformConfidence:audience?.confidence?.platform??"Unavailable"
+      },
+      drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,
+      confidence:{
+        sources:confidence?.sources ?? [],
+        qualified:confidence?.qualified_public_signals??confidence?.qualified_conversations ?? 0,
+        lowSignal:confidence?.low_signal_excluded_or_downweighted ?? 0,
+        level:confidence?.level ?? "Medium"
+      },
+      network:{
+        nodes:(network?.nodes || []).map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round((node.centrality || 0.5)*50))})),
+        edges:network?.edges || []
+      }
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function askAnalyst(topicSlug:string,question:string){

@@ -121,8 +121,22 @@ class FeedbackRecord(Base):
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=lambda:datetime.now(timezone.utc))
 
 settings=get_settings()
-connect_args={"check_same_thread":False} if settings.database_url.startswith("sqlite") else {}
-engine=create_engine(settings.database_url,connect_args=connect_args,pool_pre_ping=True)
+def _prepare_db_engine(raw_url: str):
+    url = raw_url
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    
+    connect_args = {}
+    if url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
+    elif "postgresql" in url:
+        connect_args["prepare_threshold"] = None
+    
+    return create_engine(url, connect_args=connect_args, pool_pre_ping=True)
+
+engine = _prepare_db_engine(settings.database_url)
 SessionLocal=sessionmaker(bind=engine,autoflush=False,autocommit=False,expire_on_commit=False)
 
 def get_db():
