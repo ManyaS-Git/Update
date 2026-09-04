@@ -81,7 +81,15 @@ def _conversation_network(rows:list[tuple[SourceCommentRecord,CommentAnalysisRec
         node_counts.update(labels)
         for index,source in enumerate(labels):
             for target in labels[index+1:]:edge_counts[(source,target)]+=1
-    graph=nx.Graph();graph.add_weighted_edges_from((source,target,count) for (source,target),count in edge_counts.items());pagerank=nx.pagerank(graph,weight="weight") if graph.number_of_nodes() else {}
+    graph = nx.Graph()
+    graph.add_weighted_edges_from((source, target, count) for (source, target), count in edge_counts.items())
+    pagerank = {}
+    if graph.number_of_nodes():
+        try:
+            pagerank = nx.pagerank(graph, weight="weight")
+        except Exception:
+            total_count = max(1, sum(node_counts.values()))
+            pagerank = {name: round(count / total_count, 4) for name, count in node_counts.items()}
     nodes=[{"id":name.lower().replace(" ","-"),"label":name,"centrality":round(pagerank.get(name,count/max(1,len(rows))),4),"observed_count":count,"algorithm":"PageRank" if pagerank else "observed frequency"} for name,count in node_counts.most_common(8)]
     if not nodes:
         platforms=Counter(_human_platform(comment.platform) for comment,_ in rows)

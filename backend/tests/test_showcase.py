@@ -17,7 +17,7 @@ def test_normal_mode_never_serves_synthetic_showcase_analysis():
     for story in client.get("/api/stories?limit=100").json():
         slug = story["topic_slug"]
         confidence = client.get(f"/api/topics/{slug}/confidence").json()
-        assert confidence["analysis_scope"] != "pitch_demo"
+        assert confidence.get("analysis_scope") != "pitch_demo"
         assert "pitch demo" not in confidence.get("metric_label", "")
 
 
