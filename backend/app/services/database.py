@@ -72,6 +72,25 @@ def init_database()->None:
         if not db.get(PreferenceRecord,"notifications_enabled"):
             db.add(PreferenceRecord(key="notifications_enabled",value="false"))
         db.commit()
+        from app.core.config import get_settings
+        from app.services.showcase import prepare_curated_stories
+        prepare_curated_stories(db)
+        from app.services.manual_evidence import import_manual_public_evidence
+        import_manual_public_evidence(db)
+        if get_settings().pitch_showcase_mode:
+            from app.services.showcase import prepare_showcase
+            prepare_showcase(db)
+        else:
+            # Never leave synthetic showcase analytics in a normal evidence-backed run.
+            for topic in db.scalars(select(TopicRecord)).all():
+                if topic.analytics.get("confidence", {}).get("analysis_scope") != "pitch_demo":
+                    continue
+                story=db.scalar(select(StoryRecord).where(StoryRecord.topic_slug==topic.slug).order_by(StoryRecord.published_at.desc()))
+                if story:
+                    topic.total_conversations=0;topic.updated="Evidence collection pending";topic.is_demo=True
+                    topic.subtitle="Story context analysed · awaiting measured public signals"
+                    topic.analytics_json=json.dumps(preview_analytics(story.title,story.category,story.source_status.replace("news:","")))
+            db.commit()
 
 def relative_time(value:datetime|None,fallback:str)->str:
     if not value:return fallback

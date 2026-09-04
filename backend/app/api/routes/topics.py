@@ -2,11 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models.database import StoryRecord, TopicRecord, get_db
+from app.core.config import get_settings
 router=APIRouter(prefix="/api/topics",tags=["topics"])
 
 def ensure(slug: str,db:Session)->TopicRecord:
     topic=db.get(TopicRecord,slug)
     if not topic: raise HTTPException(404,"Topic not found")
+    if get_settings().pitch_showcase_mode:
+        from app.services.showcase import apply_showcase_analysis
+        apply_showcase_analysis(db,topic);db.commit();db.refresh(topic)
     return topic
 
 @router.get("")

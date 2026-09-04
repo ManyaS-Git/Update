@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.database import StoryRecord, TopicRecord
 from app.services.database import preview_analytics
+from app.core.config import get_settings
 
 GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
@@ -74,6 +75,7 @@ def _fetch_rss(query: str, max_items: int) -> tuple[str,list[dict]]:
 
 def refresh_latest_news(db: Session, query: str = DEFAULT_QUERY, max_items: int = 12) -> dict:
     """Import recent article metadata. Analytics remain empty until comments are collected."""
+    settings=get_settings();max_items=min(max_items,settings.pitch_refresh_max_items) if settings.pitch_showcase_mode else max_items
     try: provider,articles=_fetch_gdelt(query,max_items)
     except (httpx.HTTPError,ValueError): provider,articles=_fetch_rss(query,max_items)
 
@@ -105,4 +107,11 @@ def refresh_latest_news(db: Session, query: str = DEFAULT_QUERY, max_items: int 
         existing_titles.add(title)
         added += 1;added_slugs.append(slug)
     db.commit()
+    if settings.pitch_showcase_mode:
+        from app.services.showcase import apply_showcase_analysis, prepare_showcase
+        prepare_showcase(db)
+        for slug in added_slugs:
+            topic=db.get(TopicRecord,slug)
+            if topic:apply_showcase_analysis(db,topic)
+        db.commit()
     return {"provider":provider,"received":len(articles),"added":added,"query":query,"added_topic_slugs":added_slugs}

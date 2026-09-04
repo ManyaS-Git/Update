@@ -4,15 +4,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "UPDATES Intelligence API"
     demo_mode: bool = True
+    pitch_showcase_mode: bool = False
+    pitch_refresh_max_items: int = 3
     database_url: str = "sqlite:///./updates-demo.db"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:3001"
     llm_provider: str = "mock"
     sentiment_provider: str = "auto"
     hf_token: str | None = None
+    hf_allow_model_download: bool = False
     hf_sentiment_model: str = "airzipm/sentiment-analysis-muril-v2"
     hf_inference_endpoint_url: str | None = None
     hf_safety_model: str = "Hate-speech-CNERG/indic-abusive-allInOne-MuRIL"
     safety_provider: str = "auto"
+    sarcasm_inference_endpoint_url: str | None = None
+    sarcasm_model_name: str = "not-configured"
     model_device: str = "cpu"
     hf_model_cache: str = "./.hf-cache"
     x_bearer_token: str | None = None
@@ -47,6 +52,17 @@ class Settings(BaseSettings):
     learning_min_labels: int = 60
     continuous_learning_enabled: bool = True
     continuous_learning_interval_minutes: int = 60
+    kafka_enabled: bool = False
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_security_protocol: str = "PLAINTEXT"
+    kafka_sasl_mechanism: str = "PLAIN"
+    kafka_sasl_username: str | None = None
+    kafka_sasl_password: str | None = None
+    kafka_client_id: str = "updates-intelligence"
+    kafka_raw_topic: str = "social-media-raw"
+    kafka_normalized_topic: str = "social-media-normalized"
+    kafka_qualified_topic: str = "social-media-qualified"
+    kafka_dead_letter_topic: str = "social-media-dead-letter"
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     @property

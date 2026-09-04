@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime,timedelta,timezone
 import hashlib,hmac,json,secrets
+import networkx as nx
 from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from app.collectors.adapters import CollectorError,get_collector
 from app.models.database import CommentAnalysisRecord,IngestionJobRecord,SourceCommentRecord,TopicRecord
 from app.models.schemas import CommentInput,IngestionRequest
 from app.services.intelligence import CommentIntelligenceService
+from app.services.streaming import event_bus
 from app.core.config import get_settings
 
 _EPHEMERAL_PRIVACY_SECRET=secrets.token_bytes(32)
@@ -18,14 +20,17 @@ def _hash_author(value:str|None)->str|None:
     configured=get_settings().privacy_hash_secret;secret=configured.encode() if configured else _EPHEMERAL_PRIVACY_SECRET
     return hmac.new(secret,value.encode(),hashlib.sha256).hexdigest()
 
-def _store(db:Session,topic_slug:str,platform:str,raw:dict,service:CommentIntelligenceService)->bool:
+def _process(db:Session,topic_slug:str,platform:str,raw:dict,service:CommentIntelligenceService):
     collector=get_collector(platform);item=collector.normalize(raw,topic_slug)
-    if not item.text:return False
+    if not item.text:return False,item,None
     existing=db.scalar(select(SourceCommentRecord).where(SourceCommentRecord.platform==platform,SourceCommentRecord.external_id==item.external_id))
-    if existing:return False
+    if existing:return False,item,None
     record=SourceCommentRecord(topic_slug=topic_slug,platform=platform,external_id=item.external_id,parent_external_id=item.parent_id,author_hash=_hash_author(item.author_id),text=item.text,published_at=item.timestamp,engagement_json=json.dumps(item.engagement),public_signals_json=json.dumps(item.public_profile_signals),raw_metadata_json=json.dumps(item.raw_metadata));db.add(record);db.flush()
     result=service.analyse(CommentInput(text=item.text,context=topic_slug,platform=platform,engagement=item.engagement,public_signals=item.public_profile_signals))
-    db.add(CommentAnalysisRecord(comment_id=record.id,sentiment=result.sentiment,sentiment_score=result.sentiment_score,stance=result.stance,emotion=result.emotion,safety=result.safety,language=result.language,interests_json=json.dumps(result.interests),geography=result.geography,age_bracket=result.age_bracket,inference_json=json.dumps({"confidence":result.confidence,"evidence":result.evidence,"signal_quality":result.signal_quality,"signal_classification":result.signal_classification,"safety_model":result.safety_model_name}),influence_score=result.influence_score,model_name=result.model_name));return True
+    db.add(CommentAnalysisRecord(comment_id=record.id,sentiment=result.sentiment,sentiment_score=result.sentiment_score,stance=result.stance,emotion=result.emotion,safety=result.safety,language=result.language,interests_json=json.dumps(result.interests),geography=result.geography,age_bracket=result.age_bracket,inference_json=json.dumps({"confidence":result.confidence,"evidence":result.evidence,"signal_quality":result.signal_quality,"signal_classification":result.signal_classification,"safety_model":result.safety_model_name,"sarcasm_detected":result.sarcasm_detected,"sarcasm_confidence":result.sarcasm_confidence,"sarcasm_model":result.sarcasm_model_name}),influence_score=result.influence_score,model_name=result.model_name));return True,item,result
+
+def _store(db:Session,topic_slug:str,platform:str,raw:dict,service:CommentIntelligenceService)->bool:
+    return _process(db,topic_slug,platform,raw,service)[0]
 
 def _percent(count:int,total:int)->int:
     return round(100*count/total) if total else 0
@@ -60,14 +65,14 @@ def _representative_voices(rows:list[tuple[SourceCommentRecord,CommentAnalysisRe
         comment,_=max(candidates,key=lambda pair:(pair[1].influence_score,pair[0].published_at))
         quote=" ".join(comment.text.split())[:280]
         result.append({"quote":quote,"label":labels[stance],"stance":stance,"source":_human_platform(comment.platform)})
-        if len(result)==3:break
+        if len(result)>=3:break
     used={item["quote"] for item in result}
     for comment,analysis in sorted(rows,key=lambda pair:pair[1].influence_score,reverse=True):
         quote=" ".join(comment.text.split())[:280]
         if quote in used:continue
         result.append({"quote":quote,"label":labels.get(analysis.stance,"Representative voice"),"stance":analysis.stance,"source":_human_platform(comment.platform)});used.add(quote)
-        if len(result)==3:break
-    return result
+        if len(result)>=3:break
+    return result[:3]
 
 def _conversation_network(rows:list[tuple[SourceCommentRecord,CommentAnalysisRecord]])->dict:
     node_counts=Counter();edge_counts=Counter()
@@ -76,13 +81,22 @@ def _conversation_network(rows:list[tuple[SourceCommentRecord,CommentAnalysisRec
         node_counts.update(labels)
         for index,source in enumerate(labels):
             for target in labels[index+1:]:edge_counts[(source,target)]+=1
-    nodes=[{"id":name.lower().replace(" ","-"),"label":name,"centrality":round(count/max(1,len(rows)),3)} for name,count in node_counts.most_common(8)]
+    graph = nx.Graph()
+    graph.add_weighted_edges_from((source, target, count) for (source, target), count in edge_counts.items())
+    pagerank = {}
+    if graph.number_of_nodes():
+        try:
+            pagerank = nx.pagerank(graph, weight="weight")
+        except Exception:
+            total_count = max(1, sum(node_counts.values()))
+            pagerank = {name: round(count / total_count, 4) for name, count in node_counts.items()}
+    nodes=[{"id":name.lower().replace(" ","-"),"label":name,"centrality":round(pagerank.get(name,count/max(1,len(rows))),4),"observed_count":count,"algorithm":"PageRank" if pagerank else "observed frequency"} for name,count in node_counts.most_common(8)]
     if not nodes:
         platforms=Counter(_human_platform(comment.platform) for comment,_ in rows)
         nodes=[{"id":f"source-{index}","label":name,"centrality":round(count/max(1,len(rows)),3)} for index,(name,count) in enumerate(platforms.most_common(8))]
     ids={node["label"]:node["id"] for node in nodes}
     edges=[{"source":ids[source],"target":ids[target],"weight":count} for (source,target),count in edge_counts.most_common(12) if source in ids and target in ids]
-    return {"nodes":nodes,"edges":edges}
+    return {"nodes":nodes,"edges":edges,"algorithm":"NetworkX PageRank" if pagerank else "observed source frequency","graphsage":{"status":"not_run","reason":"GraphSAGE requires a validated interaction graph and torch-geometric runtime"}}
 
 def refresh_topic_analytics(db:Session,topic_slug:str)->None:
     topic=db.get(TopicRecord,topic_slug)
@@ -126,7 +140,18 @@ async def run_ingestion(db:Session,payload:IngestionRequest)->dict:
                     raw.extend(await collector.fetch_comments(post["id"],max(1,payload.max_items-len(raw))))
                     if len(raw)>=payload.max_items:break
             else:raw=await collector.fetch_posts(payload.query,payload.max_items)
-            for item in raw[:payload.max_items]:added+=int(_store(db,payload.topic_slug,platform,item,service))
+            for raw_item in raw[:payload.max_items]:
+                if event_bus.enabled:
+                    raw_key=f"{platform}:{raw_item.get('id','unknown')}"
+                    try:await event_bus.publish(event_bus.settings.kafka_raw_topic,{"event_id":raw_key,"topic_id":payload.topic_slug,"platform":platform,"source_record":raw_item},raw_key)
+                    except Exception as exc:errors["kafka"]=str(exc)
+                stored,normalized,intelligence=_process(db,payload.topic_slug,platform,raw_item,service);added+=int(stored)
+                if stored and event_bus.enabled:
+                    key=f"{platform}:{normalized.external_id}"
+                    try:
+                        await event_bus.publish(event_bus.settings.kafka_normalized_topic,{"event_id":key,**normalized.model_dump(mode="json")},key)
+                        await event_bus.publish(event_bus.settings.kafka_qualified_topic,{"event_id":key,"topic_id":payload.topic_slug,"platform":platform,"external_id":normalized.external_id,"analysis":intelligence.model_dump(mode="json")},key)
+                    except Exception as exc:errors["kafka"]=str(exc)
             db.commit();results[platform]={"fetched":len(raw[:payload.max_items]),"stored":added}
         except Exception as exc:
             db.rollback();errors[platform]=str(exc)

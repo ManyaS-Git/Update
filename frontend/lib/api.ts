@@ -1,12 +1,11 @@
 import {reservationTopic} from "./demo-data";
-import type {Driver,PublicVoice,Story,Topic,TrendPoint} from "@/types";
+import type {Driver,EmergingSnapshot,PublicVoice,Story,Topic,TrendPoint} from "@/types";
 
-const API_URL=process.env.NEXT_PUBLIC_API_URL;
-export const CLIENT_API_URL=process.env.NEXT_PUBLIC_API_URL??"http://127.0.0.1:8001";
+const API_URL=process.env.NEXT_PUBLIC_API_URL??(typeof window==="undefined"?(process.env.BACKEND_API_URL??"http://127.0.0.1:8001"):"");
+export const CLIENT_API_URL=API_URL;
 const titleCase=(value:string)=>value.toLowerCase().replace(/(^|_)(\w)/g,(_,space,letter)=>`${space?" ":""}${letter.toUpperCase()}`);
 
 async function getJson<T>(path:string):Promise<T>{
-  if(!API_URL)throw new Error("API URL is not configured");
   const response=await fetch(`${API_URL}${path}`,{cache:"no-store"});
   if(!response.ok)throw new Error(`${path} returned ${response.status}`);
   return response.json() as Promise<T>;
@@ -24,8 +23,6 @@ type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:s
 
 /** Aggregates the independent FastAPI endpoints into the dashboard model. */
 export async function getTopic(slug:string):Promise<Topic|null>{
-  if(slug!==reservationTopic.slug&&!API_URL)return null;
-  if(!API_URL)return reservationTopic;
   try{
     const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
       getJson<Meta>(`/api/topics/${slug}`),getJson<Sentiment>(`/api/topics/${slug}/sentiment`),
@@ -39,7 +36,7 @@ export async function getTopic(slug:string):Promise<Topic|null>{
     const mappedDrivers:Driver[]=drivers.map(driver=>({title:driver.title,description:driver.description,status:titleCase(driver.status) as Driver["status"]}));
     const mappedVoices:PublicVoice[]=voices.map(voice=>({quote:voice.quote,label:voice.source?`${voice.label} · ${voice.source}`:voice.label,tone:voice.stance==="supportive"?"supporting":voice.stance==="opposing"?"concerned":"neutral"}));
     const rawAge=audience.age_bracket.value??"";const age=rawAge&&/^\d/.test(rawAge)?`${rawAge} years`:rawAge;
-    return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,preview:Boolean(meta.demo&&meta.total_conversations===0),analysisScope:confidence.analysis_scope,metricLabel:confidence.metric_label??"public conversations analysed",totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,geographyConfidence:audience.geography.confidence??"Unavailable",language,languageConfidence:audience.language.confidence??"Unavailable",age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),interestsConfidence:audience.confidence?.interests??"Unavailable",topics:audience.key_topics??[],topicsConfidence:audience.confidence?.topics??"Unavailable",platform:audience.leading_platform??"",platformConfidence:audience.confidence?.platform??"Unavailable"},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_public_signals??confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
+    return {slug:meta.slug,title:meta.title,subtitle:meta.subtitle,image:meta.image,category:meta.category,demo:Boolean(meta.demo),preview:Boolean(meta.demo&&meta.total_conversations===0),analysisScope:confidence.analysis_scope,metricLabel:confidence.metric_label??"public conversations analysed",totalConversations:meta.total_conversations,updated:meta.updated,sentiment:{negative:sentiment.negative,neutral:sentiment.neutral,positive:sentiment.positive},sentimentChange:sentiment.change_last_6h,insight:brief.insight,audience:{geography:audience.geography.value,geographyConfidence:audience.geography.confidence??"Unavailable",language,languageConfidence:audience.language.confidence??"Unavailable",age,ageConfidence:audience.age_bracket.confidence,interests:audience.interest_groups.join(" & "),interestsConfidence:audience.confidence?.interests??"Unavailable",topics:audience.key_topics??[],topicsConfidence:audience.confidence?.topics??"Unavailable",platform:audience.leading_platform??"",platformConfidence:audience.confidence?.platform??"Unavailable"},drivers:mappedDrivers,voices:mappedVoices,trends:mappedTrends,confidence:{sources:confidence.sources,qualified:confidence.qualified_public_signals??confidence.qualified_conversations,lowSignal:confidence.low_signal_excluded_or_downweighted,level:confidence.level},network:{nodes:network.nodes.map(node=>({id:node.id,label:node.label,group:"dynamic",size:Math.max(20,Math.round(node.centrality*50))})),edges:network.edges}};
   }catch{return slug===reservationTopic.slug?reservationTopic:null}
 }
 
@@ -55,6 +52,7 @@ async function clientJson<T>(path:string,init?:RequestInit):Promise<T>{
   return response.json() as Promise<T>;
 }
 export const getStories=(path="/api/stories")=>clientJson<Story[]>(path);
+export const getEmergingTopics=()=>clientJson<EmergingSnapshot>("/api/emerging?limit=6");
 export const refreshLatestNews=()=>clientJson<{provider:string;received:number;added:number;stories:Story[]}>("/api/news/refresh",{method:"POST"});
 export const getStory=(id:string)=>clientJson<Story>(`/api/stories/${id}`);
 export const getBookmarks=()=>clientJson<Story[]>("/api/bookmarks");
