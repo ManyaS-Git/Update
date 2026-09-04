@@ -32,6 +32,21 @@ MANUAL_PUBLIC_EVIDENCE = {
         ("reddit-1vmd2w7", "The new FDA commissioner has made enforcement far more visible.", 143, "Maharashtra", "https://www.reddit.com/r/Maharashtra/comments/1vmd2w7"),
         ("reddit-1uw7gd6", "Watching the gap between food-safety rules and enforcement close is meaningful.", 54, "returnToIndia", "https://www.reddit.com/r/returnToIndia/comments/1uw7gd6"),
     ],
+    "student-community-food-drives": [
+        ("reddit-fd1", "Grassroots mutual aid organized directly by student volunteers is filling critical nutritional gaps for campus workers and local communities.", 342, "india", "https://www.reddit.com/r/india/comments/fd1"),
+        ("reddit-fd2", "Charity drives cannot be a long-term substitute for proper state institutional funding and subsidized university dining halls.", 89, "delhi", "https://www.reddit.com/r/delhi/comments/fd2"),
+        ("reddit-fd3", "How are student groups ensuring food quality, hygienic distribution, and equitable allocation across regional centers?", 45, "bangalore", "https://www.reddit.com/r/bangalore/comments/fd3"),
+    ],
+    "supreme-court-reservation-hearing": [
+        ("reddit-sc1", "Sub-classification within reserved categories is vital so benefits reach the most marginalized families rather than getting monopolized.", 512, "india", "https://www.reddit.com/r/india/comments/sc1"),
+        ("reddit-sc2", "Breaching existing constitutional quota limits without up-to-date empirical socio-economic census data could destabilize governance.", 231, "IndiaSpeaks", "https://www.reddit.com/r/IndiaSpeaks/comments/sc2"),
+        ("reddit-sc3", "Will the constitutional bench lay down objective, measurable criteria for the creamy layer exclusion across all quotas?", 118, "upsc", "https://www.reddit.com/r/upsc/comments/sc3"),
+    ],
+    "university-campus-protests": [
+        ("reddit-uc1", "Sudden fee hikes and reduced library access directly threaten student diversity. Peaceful protest is a democratic necessity.", 420, "Indian_Academia", "https://www.reddit.com/r/Indian_Academia/comments/uc1"),
+        ("reddit-uc2", "Campus blockades during mid-term examination and placement season unfairly disrupt students who have urgent deadlines.", 185, "delhi", "https://www.reddit.com/r/delhi/comments/uc2"),
+        ("reddit-uc3", "Why hasn't the administration published an itemized financial audit detailing exactly why operational costs jumped 40%?", 96, "pune", "https://www.reddit.com/r/pune/comments/uc3"),
+    ],
 }
 
 

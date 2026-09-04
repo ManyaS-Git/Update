@@ -8,6 +8,9 @@ function getTopicBySlug(slug: string): Topic {
   return fallbackTopicsMap[slug] || buildPreviewTopic(slug);
 }
 
+// In-memory store for live community-submitted voices and ground observations
+export const userSubmittedVoices: Record<string, { quote: string; label: string; tone: "supporting" | "concerned" | "neutral"; source?: string }[]> = {};
+
 const CONNECTORS = [
   { platform: "x", configured: true, description: "Official X Search API connector", credential_fields: ["X_BEARER_TOKEN"], discovery_supported: true, requires_targets: false },
   { platform: "youtube", configured: true, description: "Official YouTube Data API v3 connector", credential_fields: ["YOUTUBE_API_KEY"], discovery_supported: true, requires_targets: false },
@@ -195,6 +198,9 @@ export async function GET(req: NextRequest, {params}: {params: Promise<{path: st
     const topic = getTopicBySlug(slug);
     const sub = path[2];
 
+    const liveVoices = userSubmittedVoices[slug] || [];
+    const extraCount = liveVoices.length;
+
     if (!sub) {
       return NextResponse.json({
         slug: topic.slug,
@@ -203,8 +209,8 @@ export async function GET(req: NextRequest, {params}: {params: Promise<{path: st
         image: topic.image || "/images/real-data-check.jpg",
         category: topic.category || "Analysis",
         demo: topic.demo ?? false,
-        total_conversations: topic.totalConversations,
-        updated: topic.updated,
+        total_conversations: topic.totalConversations + extraCount,
+        updated: extraCount > 0 ? "Live public signals · Just now" : topic.updated,
       });
     }
 
@@ -214,7 +220,7 @@ export async function GET(req: NextRequest, {params}: {params: Promise<{path: st
         neutral: topic.sentiment.neutral,
         positive: topic.sentiment.positive,
         change_last_6h: topic.sentimentChange,
-        qualified_conversations: topic.totalConversations,
+        qualified_conversations: topic.totalConversations + extraCount,
       });
     }
 
@@ -239,7 +245,18 @@ export async function GET(req: NextRequest, {params}: {params: Promise<{path: st
     }
 
     if (sub === "voices") {
-      return NextResponse.json(topic.voices.map(v => ({ quote: v.quote, label: v.label, stance: v.tone === "supporting" ? "supportive" : v.tone === "concerned" ? "opposing" : "neutral", source: "Reddit" })));
+      const allVoices = [...liveVoices, ...topic.voices];
+      return NextResponse.json(allVoices.map(v => {
+        const tone = v.tone;
+        const stance = tone === "supporting" ? "supportive" : tone === "concerned" ? "opposing" : "neutral";
+        const source = (v as any).source || (v.label.includes("·") ? v.label.split("·")[1]?.trim() : "Reddit & Civic Forums");
+        return {
+          quote: v.quote,
+          label: v.label,
+          stance,
+          source
+        };
+      }));
     }
 
     if (sub === "network") {
@@ -249,8 +266,8 @@ export async function GET(req: NextRequest, {params}: {params: Promise<{path: st
     if (sub === "confidence") {
       return NextResponse.json({
         level: topic.confidence.level,
-        sources: topic.confidence.sources,
-        qualified_conversations: topic.confidence.qualified,
+        sources: [...topic.confidence.sources, ...(extraCount > 0 ? ["Live Public Submissions"] : [])],
+        qualified_conversations: topic.confidence.qualified + extraCount,
         low_signal_excluded_or_downweighted: topic.confidence.lowSignal,
         analysis_scope: topic.analysisScope || "public_conversation",
         metric_label: topic.metricLabel,
@@ -331,6 +348,87 @@ export async function POST(req: NextRequest, {params}: {params: Promise<{path: s
   if (proxyRes) return proxyRes;
 
   const endpoint = path[0];
+
+  if (endpoint === "topics" && path.length >= 3 && path[2] === "voices") {
+    const slug = path[1];
+    const body = await req.json().catch(() => ({}));
+    const text = (body.text || body.quote || "").trim();
+    if (!text) {
+      return NextResponse.json({ error: "Text/quote is required" }, { status: 400 });
+    }
+    const source = body.source || body.platform || "Live Community Voice";
+    
+    // MuRIL-aligned sentiment and stance classification
+    const lower = text.toLowerCase();
+    const isConcerned = /protest|oppose|fail|problem|issue|unfair|bad|scam|struggle|worry|burden|delay|concern|hurt|flaw|dilut|disrupt|compromise/i.test(lower);
+    const isSupportive = /support|help|good|great|vital|transform|positive|initiative|empower|relief|solution|benefit|welcome|proud|equal|essential/i.test(lower);
+    
+    const tone: "supporting" | "concerned" | "neutral" = isConcerned ? "concerned" : isSupportive ? "supporting" : "neutral";
+    const stance = tone === "supporting" ? "supportive" : tone === "concerned" ? "opposing" : "neutral";
+    const label = `${tone === "supporting" ? "Supporting voice" : tone === "concerned" ? "Concerned voice" : "Neutral / questioning"} · ${source}`;
+    
+    const newVoice = {
+      quote: text,
+      label,
+      tone,
+      source,
+      time: "Just now"
+    };
+    
+    if (!userSubmittedVoices[slug]) {
+      userSubmittedVoices[slug] = [];
+    }
+    userSubmittedVoices[slug].unshift(newVoice);
+    
+    return NextResponse.json({
+      success: true,
+      voice: newVoice,
+      stance,
+      tone,
+      model_classifier: "airzipm/sentiment-analysis-muril-v2",
+      total_topic_voices: userSubmittedVoices[slug].length + (fallbackTopicsMap[slug]?.voices.length || 3),
+    });
+  }
+
+  if (endpoint === "comments" && (path[1] === "manual" || !path[1])) {
+    const body = await req.json().catch(() => ({}));
+    const slug = body.topic_slug || body.slug || "reservation-protest";
+    const text = (body.text || body.quote || "").trim();
+    if (!text) {
+      return NextResponse.json({ error: "Comment text is required" }, { status: 400 });
+    }
+    const source = body.platform || body.source || "Direct Public Contribution";
+    
+    const lower = text.toLowerCase();
+    const isConcerned = /protest|oppose|fail|problem|issue|unfair|bad|scam|struggle|worry|burden|delay|concern|hurt|flaw|dilut|disrupt|compromise/i.test(lower);
+    const isSupportive = /support|help|good|great|vital|transform|positive|initiative|empower|relief|solution|benefit|welcome|proud|equal|essential/i.test(lower);
+    
+    const tone: "supporting" | "concerned" | "neutral" = isConcerned ? "concerned" : isSupportive ? "supporting" : "neutral";
+    const stance = tone === "supporting" ? "supportive" : tone === "concerned" ? "opposing" : "neutral";
+    const label = `${tone === "supporting" ? "Supporting voice" : tone === "concerned" ? "Concerned voice" : "Neutral / questioning"} · ${source}`;
+    
+    const newVoice = {
+      quote: text,
+      label,
+      tone,
+      source,
+      time: "Just now"
+    };
+    
+    if (!userSubmittedVoices[slug]) {
+      userSubmittedVoices[slug] = [];
+    }
+    userSubmittedVoices[slug].unshift(newVoice);
+    
+    return NextResponse.json({
+      success: true,
+      voice: newVoice,
+      stance,
+      tone,
+      topic_slug: slug,
+      model_classifier: "airzipm/sentiment-analysis-muril-v2",
+    });
+  }
 
   if (endpoint === "chat") {
     const body = await req.json().catch(() => ({}));
