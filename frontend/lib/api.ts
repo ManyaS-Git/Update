@@ -1,9 +1,11 @@
 import {buildPreviewTopic, fallbackTopicsMap, reservationTopic} from "./demo-data";
 import type {Driver,EmergingSnapshot,PublicVoice,Story,Topic,TrendPoint} from "@/types";
 
-const RAW_API_URL=process.env.NEXT_PUBLIC_API_URL??(typeof window==="undefined"?(process.env.BACKEND_API_URL??"http://127.0.0.1:8001"):"");
-const API_URL=RAW_API_URL.replace(/\/+$/, "");
-export const CLIENT_API_URL=API_URL;
+const RAW_API_URL = typeof window === "undefined"
+  ? (process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001")
+  : "";
+const API_URL = RAW_API_URL.replace(/\/+$/, "");
+export const CLIENT_API_URL = "";
 const titleCase=(value:string)=>value.toLowerCase().replace(/(^|_)(\w)/g,(_,space,letter)=>`${space?" ":""}${letter.toUpperCase()}`);
 
 async function getJson<T>(path:string, timeoutMs=4000):Promise<T>{

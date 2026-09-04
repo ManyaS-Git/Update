@@ -1,6 +1,8 @@
 import type { Story, Topic } from "@/types";
 export const stories:Story[] = [
- {id:"1",topic_slug:"reservation-protest",title:"CJP Protest Intensifies Across Multiple States",category:"India",time:"2h ago",image:"/images/real-protest.jpg",live:true},
+  {id:"p1",topic_slug:"maratha-reservation-protest-2026",title:"Maratha Reservation Protest: Manoj Jarange Continues Fast, Sets September 11 Deadline",category:"Protest",time:"2m ago",image:"/images/real-city-protest.jpg",live:true,summary:"Manoj Jarange continued his reservation agitation in Jalna after seeking action on Maratha quota and Kunbi certificate demands."},
+  {id:"p2",topic_slug:"tukaram-mundhe-fda-testing-surge",title:"Maharashtra FDA Testing Rises 300% Under IAS Officer Tukaram Mundhe",category:"India",time:"5m ago",image:"/images/real-data-check.jpg",live:true,summary:"Maharashtra FDA reported a sharp increase in statewide sample collection and testing after Tukaram Mundhe took charge as commissioner."},
+  {id:"1",topic_slug:"reservation-protest",title:"CJP Protest Intensifies Across Multiple States",category:"India",time:"2h ago",image:"/images/real-protest.jpg",live:true},
  {id:"2",topic_slug:"student-community-food-drives",title:"Students Unite for Community Food Drives",category:"India",time:"4h ago",image:"/images/real-food-drive.jpg"},
  {id:"3",topic_slug:"supreme-court-reservation-hearing",title:"Supreme Court Hearing on Reservation Policy",category:"Laws",time:"5h ago",image:"/images/real-supreme-court.jpg"},
  {id:"4",topic_slug:"university-campus-protests",title:"University Campus Protests: Demands & Updates",category:"Education",time:"3h ago",image:"/images/real-campus.jpg"},
