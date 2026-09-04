@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import importlib.util,math,os,re,threading
 import httpx
+from urllib.parse import urlparse
 from app.core.config import Settings,get_settings
 from app.models.schemas import CommentInput,CommentIntelligence
 from app.services.csqe import CSQEService
@@ -14,6 +15,29 @@ class SentimentPrediction:
 @dataclass
 class SafetyPrediction:
     label:str;score:float;evidence:list[str];model:str
+
+@dataclass
+class SarcasmPrediction:
+    detected:bool;score:float;model:str
+
+class SarcasmProvider:
+    """Optional real inference endpoint. No heuristic fallback is used."""
+    _last_error:str|None=None
+    def __init__(self,settings:Settings|None=None):self.settings=settings or get_settings()
+    def predict(self,text:str)->SarcasmPrediction|None:
+        url=self.settings.sarcasm_inference_endpoint_url
+        if not url:return None
+        parsed=urlparse(url)
+        if parsed.scheme!="https" and not (parsed.scheme=="http" and parsed.hostname in {"127.0.0.1","localhost"}):
+            SarcasmProvider._last_error="Sarcasm endpoint must use HTTPS or localhost HTTP";return None
+        try:
+            headers={"Authorization":f"Bearer {self.settings.hf_token}"} if self.settings.hf_token else {}
+            response=httpx.post(url,headers=headers,json={"inputs":text[:4000]},timeout=30);response.raise_for_status();payload=response.json()
+            if isinstance(payload,list):
+                rows=payload[0] if payload and isinstance(payload[0],list) else payload;best=max(rows,key=lambda row:float(row.get("score",0)));label=str(best.get("label","")).lower();score=float(best.get("score",0));detected=label in {"sarcastic","sarcasm","label_1","1","true"}
+            else:detected=bool(payload["sarcasm_detected"]);score=float(payload["sarcasm_confidence"])
+            SarcasmProvider._last_error=None;return SarcasmPrediction(detected,max(0,min(1,score)),self.settings.sarcasm_model_name)
+        except Exception as exc:SarcasmProvider._last_error=str(exc);return None
 
 class MuRILSentimentProvider:
     _pipeline=None
@@ -32,8 +56,8 @@ class MuRILSentimentProvider:
                     with MuRILSentimentProvider._lock:
                         if MuRILSentimentProvider._pipeline is None:
                             from transformers import AutoModelForSequenceClassification,AutoTokenizer,pipeline
-                            tokenizer=AutoTokenizer.from_pretrained(self.settings.hf_sentiment_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache)
-                            model=AutoModelForSequenceClassification.from_pretrained(self.settings.hf_sentiment_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache)
+                            tokenizer=AutoTokenizer.from_pretrained(self.settings.hf_sentiment_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache,local_files_only=not self.settings.hf_allow_model_download)
+                            model=AutoModelForSequenceClassification.from_pretrained(self.settings.hf_sentiment_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache,local_files_only=not self.settings.hf_allow_model_download)
                             MuRILSentimentProvider._pipeline=pipeline("text-classification",model=model,tokenizer=tokenizer,device=self.settings.model_device)
                 result=MuRILSentimentProvider._pipeline(text[:4000],top_k=3)
                 rows=result[0] if result and isinstance(result[0],list) else result
@@ -121,8 +145,8 @@ class MuRILSafetyProvider:
                     with MuRILSafetyProvider._lock:
                         if MuRILSafetyProvider._pipeline is None:
                             from transformers import AutoModelForSequenceClassification,AutoTokenizer,pipeline
-                            tokenizer=AutoTokenizer.from_pretrained(self.settings.hf_safety_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache)
-                            model=AutoModelForSequenceClassification.from_pretrained(self.settings.hf_safety_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache)
+                            tokenizer=AutoTokenizer.from_pretrained(self.settings.hf_safety_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache,local_files_only=not self.settings.hf_allow_model_download)
+                            model=AutoModelForSequenceClassification.from_pretrained(self.settings.hf_safety_model,token=self.settings.hf_token,cache_dir=self.settings.hf_model_cache,local_files_only=not self.settings.hf_allow_model_download)
                             MuRILSafetyProvider._pipeline=pipeline("text-classification",model=model,tokenizer=tokenizer,device=self.settings.model_device)
                 result=MuRILSafetyProvider._pipeline(text[:4000],top_k=2);rows=result[0] if result and isinstance(result[0],list) else result;best=max(rows,key=lambda item:item["score"]);label=str(best["label"]).lower()
                 mapped="toxic" if label in {"abusive","label_1"} else "normal" if label in {"normal","label_0"} else None
@@ -148,11 +172,13 @@ def influence(engagement:dict[str,int])->tuple[float,list[str]]:
     likes=max(0,engagement.get("likes",0));replies=max(0,engagement.get("replies",0));shares=max(0,engagement.get("shares",0));score=min(100,round(12*math.log1p(likes)+18*math.log1p(replies)+24*math.log1p(shares),2));return score,[f"likes={likes}",f"replies={replies}",f"shares={shares}"]
 
 class CommentIntelligenceService:
-    def __init__(self,settings:Settings|None=None):self.sentiment=MuRILSentimentProvider(settings);self.safety=MuRILSafetyProvider(settings);self.csqe=CSQEService()
+    def __init__(self,settings:Settings|None=None):self.sentiment=MuRILSentimentProvider(settings);self.safety=MuRILSafetyProvider(settings);self.sarcasm=SarcasmProvider(settings);self.csqe=CSQEService()
     def analyse(self,item:CommentInput)->CommentIntelligence:
-        prediction=self.sentiment.predict(item.text);language,lang_conf,lang_ev=detect_language(item.text);stance,stance_conf,stance_ev=classify_stance(item.text,item.context);safety_prediction=self.safety.predict(item.text);safety,safety_conf,safety_ev=safety_prediction.label,safety_prediction.score,safety_prediction.evidence;interest_labels,interest_ev=interests(item.text,item.public_signals);influence_score,influence_ev=influence(item.engagement);signal=self.csqe.qualify(item.text,item.context)
+        prediction=self.sentiment.predict(item.text);language,lang_conf,lang_ev=detect_language(item.text);stance,stance_conf,stance_ev=classify_stance(item.text,item.context)
+        if stance=="opposing" and stance_conf>=.7 and prediction.label=="positive":prediction=SentimentPrediction("negative",max(.7,prediction.score),f"{prediction.model}+explicit-stance-calibration")
+        safety_prediction=self.safety.predict(item.text);safety,safety_conf,safety_ev=safety_prediction.label,safety_prediction.score,safety_prediction.evidence;sarcasm=self.sarcasm.predict(item.text);interest_labels,interest_ev=interests(item.text,item.public_signals);influence_score,influence_ev=influence(item.engagement);signal=self.csqe.qualify(item.text,item.context)
         geography=item.public_signals.get("location") or None;age=item.public_signals.get("age_bracket") or None
-        return CommentIntelligence(sentiment=prediction.label,sentiment_score=prediction.score,stance=stance,emotion="support" if stance=="supportive" else "concern" if stance=="opposing" else "questioning" if stance=="questioning" else "uncertain",safety=safety,language=language,interests=interest_labels,geography=geography,age_bracket=age,influence_score=influence_score,confidence={"sentiment":round(prediction.score,3),"language":lang_conf,"stance":stance_conf,"safety":safety_conf,"geography":.88 if geography else 0,"age":.75 if age else 0,"interests":min(.9,.45+.1*len(interest_labels)),"influence":.9,"signal_quality":signal.signal_quality},evidence={"language":lang_ev,"stance":stance_ev,"safety":safety_ev,"interests":interest_ev,"influence":influence_ev,"geography":["public profile/record metadata"] if geography else ["not inferred without explicit public evidence"],"age":["explicit broad age metadata"] if age else ["not inferred from writing style"],"signal_quality":[signal.reason]},model_name=prediction.model,safety_model_name=safety_prediction.model,signal_quality=signal.signal_quality,signal_classification=signal.classification)
+        return CommentIntelligence(sentiment=prediction.label,sentiment_score=prediction.score,stance=stance,emotion="support" if stance=="supportive" else "concern" if stance=="opposing" else "questioning" if stance=="questioning" else "uncertain",safety=safety,sarcasm_detected=sarcasm.detected if sarcasm else None,sarcasm_confidence=sarcasm.score if sarcasm else None,sarcasm_model_name=sarcasm.model if sarcasm else None,language=language,interests=interest_labels,geography=geography,age_bracket=age,influence_score=influence_score,confidence={"sentiment":round(prediction.score,3),"language":lang_conf,"stance":stance_conf,"safety":safety_conf,"sarcasm":round(sarcasm.score,3) if sarcasm else 0,"geography":.88 if geography else 0,"age":.75 if age else 0,"interests":min(.9,.45+.1*len(interest_labels)),"influence":.9,"signal_quality":signal.signal_quality},evidence={"language":lang_ev,"stance":stance_ev,"safety":safety_ev,"sarcasm":["external validated inference endpoint"] if sarcasm else ["unavailable: no validated sarcasm model configured"],"interests":interest_ev,"influence":influence_ev,"geography":["public profile/record metadata"] if geography else ["not inferred without explicit public evidence"],"age":["explicit broad age metadata"] if age else ["not inferred from writing style"],"signal_quality":[signal.reason]},model_name=prediction.model,safety_model_name=safety_prediction.model,signal_quality=signal.signal_quality,signal_classification=signal.classification)
 
 def model_status(settings:Settings|None=None)->dict:
     config=settings or get_settings();local_runtime=bool(importlib.util.find_spec("transformers") and importlib.util.find_spec("torch"))
@@ -162,4 +188,4 @@ def model_status(settings:Settings|None=None)->dict:
     elif config.sentiment_provider=="local" and not local_runtime:active="unavailable"
     else:active="not_loaded"
     safety_active=MuRILSafetyProvider._last_active if MuRILSafetyProvider._last_active!="not_loaded" else "not_loaded" if config.safety_provider!="heuristic" else "heuristic_fallback"
-    return {"sentiment":{"requested_provider":config.sentiment_provider,"active_provider":active,"model":config.hf_sentiment_model,"local_runtime_installed":local_runtime,"endpoint_configured":bool(config.hf_inference_endpoint_url),"last_error":MuRILSentimentProvider._last_error,"model_card_note":"This model is not deployed by a shared Hugging Face Inference Provider; use local runtime or a dedicated endpoint."},"safety":{"active_provider":safety_active,"model":config.hf_safety_model,"last_error":MuRILSafetyProvider._last_error,"note":"The Indic model detects abusive content; the narrower hate label additionally requires explicit hate-target evidence. Safety remains separate from sentiment and stance."}}
+    return {"sentiment":{"requested_provider":config.sentiment_provider,"active_provider":active,"model":config.hf_sentiment_model,"local_runtime_installed":local_runtime,"endpoint_configured":bool(config.hf_inference_endpoint_url),"last_error":MuRILSentimentProvider._last_error,"model_card_note":"This model is not deployed by a shared Hugging Face Inference Provider; use local runtime or a dedicated endpoint."},"safety":{"active_provider":safety_active,"model":config.hf_safety_model,"last_error":MuRILSafetyProvider._last_error,"note":"The Indic model detects abusive content; the narrower hate label additionally requires explicit hate-target evidence. Safety remains separate from sentiment and stance."},"sarcasm":{"active_provider":"external_endpoint" if config.sarcasm_inference_endpoint_url else "unavailable","model":config.sarcasm_model_name if config.sarcasm_inference_endpoint_url else None,"endpoint_configured":bool(config.sarcasm_inference_endpoint_url),"last_error":SarcasmProvider._last_error,"note":"No heuristic or fabricated sarcasm labels are produced."}}

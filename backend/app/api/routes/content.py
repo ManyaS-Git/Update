@@ -11,6 +11,13 @@ from app.services.auto_ingestion import enrich_topics
 from app.core.security import require_admin
 
 router = APIRouter(prefix="/api", tags=["content"])
+CURATED_PRIORITY=("maratha-reservation-protest-2026","tukaram-mundhe-fda-testing-surge")
+
+
+def story_order():
+    pitch=case((StoryRecord.topic_slug==CURATED_PRIORITY[0],2),(StoryRecord.topic_slug==CURATED_PRIORITY[1],1),else_=0)
+    live_source=case((or_(StoryRecord.source_status.like("gdelt:%"),StoryRecord.source_status.like("news:%")),1),else_=0)
+    return pitch.desc(),live_source.desc(),StoryRecord.published_at.desc(),StoryRecord.is_live.desc()
 
 
 @router.get("/categories")
@@ -31,8 +38,7 @@ def stories(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    live_source=case((or_(StoryRecord.source_status.like("gdelt:%"),StoryRecord.source_status.like("news:%")),1),else_=0)
-    query = select(StoryRecord).order_by(live_source.desc(), StoryRecord.published_at.desc(), StoryRecord.is_live.desc()).offset(offset).limit(limit)
+    query = select(StoryRecord).order_by(*story_order()).offset(offset).limit(limit)
     if category and category.lower() != "all":
         query = query.where(func.lower(StoryRecord.category) == category.lower())
     if q:
@@ -140,8 +146,7 @@ def remove_bookmark(story_id: int, db: Session = Depends(get_db)):
 @router.get("/feed")
 def feed(db: Session = Depends(get_db)):
     bookmarks = bookmarked_ids(db)
-    live_source=case((or_(StoryRecord.source_status.like("gdelt:%"),StoryRecord.source_status.like("news:%")),1),else_=0)
-    rows = db.scalars(select(StoryRecord).order_by(live_source.desc(), StoryRecord.published_at.desc(), StoryRecord.is_live.desc()).limit(30)).all()
+    rows = db.scalars(select(StoryRecord).order_by(*story_order()).limit(30)).all()
     return [story_dict(item, item.id in bookmarks) for item in rows]
 
 

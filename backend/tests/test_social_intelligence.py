@@ -40,10 +40,12 @@ def test_connector_capability_contract():
 
 def test_model_status_never_mislabels_fallback_as_muril():
     status=client.get("/api/models/status").json()["sentiment"]
-    assert status["active_provider"] in {"not_loaded","local_muril","dedicated_endpoint","heuristic_fallback","unavailable"}
+    assert status["active_provider"] in {"not_loaded","local_muril","dedicated_endpoint","validated_cpu_fallback","heuristic_fallback","unavailable"}
     if status["active_provider"]=="heuristic_fallback":
         result=client.post("/api/classify",json={"text":"yeh policy sahi hai"}).json()
         assert result["model_name"]=="multilingual-heuristic-fallback"
+    sarcasm=client.get("/api/models/status").json()["sarcasm"]
+    assert sarcasm["active_provider"] in {"unavailable","external_endpoint"}
 
 def test_signal_quality_is_returned_with_classification():
     low=client.post("/api/classify",json={"text":"BINOD"}).json()

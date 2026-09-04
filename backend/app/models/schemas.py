@@ -102,6 +102,9 @@ class CommentIntelligence(BaseModel):
     stance: Literal["supportive","opposing","neutral","questioning"]
     emotion: str
     safety: Literal["normal","toxic","hate"]
+    sarcasm_detected: bool | None = None
+    sarcasm_confidence: float | None = Field(default=None,ge=0,le=1)
+    sarcasm_model_name: str | None = None
     language: Literal["english","hindi","hinglish","other"]
     interests: list[str]
     geography: str | None
