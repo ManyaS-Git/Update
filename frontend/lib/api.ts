@@ -27,6 +27,9 @@ type Network={nodes:{id:string;label:string;centrality:number}[];edges:{source:s
 
 /** Aggregates the independent FastAPI endpoints into the dashboard model with zero-failure fallback. */
 export async function getTopic(slug:string):Promise<Topic>{
+  if (process.env.ENABLE_BACKEND_PROXY !== "true" && !process.env.BACKEND_API_URL?.includes("127.0.0.1")) {
+    return fallbackTopicsMap[slug] || buildPreviewTopic(slug);
+  }
   try{
     const [meta,sentiment,audience,trends,drivers,voices,network,confidence,brief]=await Promise.all([
       getJson<Meta>(`/api/topics/${slug}`),getJson<Sentiment>(`/api/topics/${slug}/sentiment`),

@@ -109,17 +109,18 @@ const EMERGING_SNAPSHOT = {
 };
 
 async function tryProxy(req: NextRequest, path: string[]) {
+  if (process.env.ENABLE_BACKEND_PROXY !== "true") return null;
   const rawBackend = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL;
   if (!rawBackend) return null;
   const backend = rawBackend.replace(/\/+$/, "");
-  // Do not self-proxy
   if (backend.includes("vercel.app") || backend === "http://127.0.0.1:8001" || backend === "http://localhost:8001") {
     return null;
   }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 800);
   try {
     const url = new URL(req.url);
     const targetUrl = `${backend}/api/${path.join("/")}${url.search}`;
-    const controller = typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(2000) : undefined;
     const res = await fetch(targetUrl, {
       method: req.method,
       headers: {
@@ -127,14 +128,15 @@ async function tryProxy(req: NextRequest, path: string[]) {
         "Accept": "application/json",
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : await req.text(),
-      signal: controller,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json();
       return NextResponse.json(data);
     }
   } catch {
-    // If backend times out or fails, fall through to native handler
+    clearTimeout(timeoutId);
   }
   return null;
 }
