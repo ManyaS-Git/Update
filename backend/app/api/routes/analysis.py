@@ -18,12 +18,17 @@ def chat(payload:ChatQuestion,db:Session=Depends(get_db)):
         except (TypeError,ValueError): story=None
     if story and not topic: topic=db.get(TopicRecord,story.topic_slug)
     latest=db.scalars(select(StoryRecord).order_by(StoryRecord.published_at.desc()).limit(3)).all()
-    if text in {"hi","hello","hey","hey there","namaste","hii","hello there"}:
+    if text in {"hi","hello","hey","hey there","namaste","hii","hello there","namaskar","bhai","hello bhai"}:
         context=f" You’re viewing “{story.title}”." if story else (f" You’re viewing “{topic.title}”." if topic else "")
         return ChatResponse(answer=f"Hi! I’m your UPDATES news assistant.{context} Ask me to explain this story, its sentiment or confidence, find coverage on a subject, or show the latest headlines.",actions=[{"label":"Latest news","href":"/live"},{"label":"How analysis works","href":"/methodology"}])
-    if text=="news" or any(word in text for word in ("latest","trending","today")):
+    if any(phrase in text for phrase in ("thank you","thanks","tysm","shukriya")):
+        return ChatResponse(answer="You’re welcome! I can help you explore another story, check its evidence, or open the latest feed.",actions=[{"label":"Latest news","href":"/live"},{"label":"Browse topics","href":"/#stories"}])
+    latest_intent=text=="news" or any(phrase in text for phrase in ("latest news","latest story","latest stories","top news","top stories","today's news","todays news","aaj ki news","trending news"))
+    if latest_intent:
         titles="\n".join(f"{index}. {item.title}" for index,item in enumerate(latest,1))
-        return ChatResponse(answer=f"These are the three newest indexed stories:\n{titles}",actions=[{"label":"Open live feed","href":"/live"},{"label":"View top stories","href":"/#stories"}],evidence=[f"{len(latest)} newest records ordered by publication time"])
+        actions=[{"label":item.title[:42]+("…" if len(item.title)>42 else ""),"href":f"/topic/{item.topic_slug}" if item.topic_slug else f"/story/{item.id}"} for item in latest]
+        actions.append({"label":"Open live feed","href":"/live"})
+        return ChatResponse(answer=f"These are the three newest indexed stories:\n{titles}",actions=actions,evidence=[f"{len(latest)} newest records ordered by publication time"])
     if any(word in text for word in ("this story","this article","explain","summary","summarise","summarize","what is this")) and (story or topic):
         analytics=topic.analytics if topic else {};confidence=analytics.get("confidence",{});sentiment=analytics.get("sentiment",{});drivers=analytics.get("drivers") or [];subject=story.title if story else topic.title;summary=story.summary if story else topic.subtitle
         measured=topic.total_conversations if topic else 0;scope=confidence.get("analysis_scope","story context")
@@ -31,11 +36,11 @@ def chat(payload:ChatQuestion,db:Session=Depends(get_db)):
         caveat=f" This is based on {measured:,} {confidence.get('metric_label','signals')} with {confidence.get('level','unavailable')} confidence." if measured else " No qualified public comments have been collected yet, so audience sentiment should not be treated as measured opinion."
         driver=f" The leading theme is {drivers[0].get('title')}." if drivers else ""
         return ChatResponse(answer=f"{subject}: {summary}{detail}{driver}{caveat}",actions=[{"label":"Open full analysis","href":f"/topic/{topic.slug}"},{"label":"Methodology","href":"/methodology"}],evidence=[scope,*confidence.get("sources",[])])
-    if topic and any(word in text for word in ("sentiment","positive","negative","support","oppose","reaction","feel")):
+    if topic and any(word in text for word in ("sentiment","positive","negative","support","oppose","opposing","reaction","feel","mood","hate","neutral")):
         analytics=topic.analytics;sentiment=analytics.get("sentiment",{});confidence=analytics.get("confidence",{});count=topic.total_conversations
         if not count:return ChatResponse(answer=f"I can’t claim measured public sentiment for {topic.title} yet because there are no qualified comments attached to this topic. The page may show headline-context analysis, which is different from audience opinion.",actions=[{"label":"Check sources","href":"/sources"},{"label":"Read methodology","href":"/methodology"}],evidence=["0 qualified topic comments"])
         return ChatResponse(answer=f"For {topic.title}, the current topic-scoped result is {sentiment.get('negative',0)}% opposing, {sentiment.get('neutral',0)}% neutral and {sentiment.get('positive',0)}% supportive across {count:,} {confidence.get('metric_label','signals')}. Confidence is {confidence.get('level','unavailable')}.",actions=[{"label":"View analysis","href":f"/topic/{topic.slug}"}],evidence=confidence.get("sources",[]))
-    if topic and any(word in text for word in ("confidence","accurate","accuracy","geography","location","age","language","interest","demographic")):
+    if topic and any(word in text for word in ("confidence","accurate","accuracy","geography","location","place","state","city","age","language","hindi","english","hinglish","interest","demographic","audience")):
         audience=topic.analytics.get("audience",{});confidence=topic.analytics.get("confidence",{});geo=audience.get("geography",{});age=audience.get("age_bracket",{});language=audience.get("language",{});distribution=language.get("distribution",{});dominant=max(distribution,key=distribution.get) if distribution else "Unavailable"
         return ChatResponse(answer=f"For this topic: geography is {geo.get('value','Unavailable')} ({geo.get('confidence','Unavailable')} confidence); likely age is {age.get('value','Unavailable')} ({age.get('confidence','Unavailable')} confidence); dominant language is {dominant} ({language.get('confidence','Unavailable')} confidence). These fields remain unavailable when source metadata does not support them—UPDATES does not invent demographics.",actions=[{"label":"Open analysis","href":f"/topic/{topic.slug}"},{"label":"Methodology","href":"/methodology"}],evidence=confidence.get("sources",[]))
     if topic and any(phrase in text for phrase in ("why is","why has","driving","mainly discussing","people saying","public saying","emerging","develop","evidence","associated topic","influential")):
@@ -51,7 +56,7 @@ def chat(payload:ChatQuestion,db:Session=Depends(get_db)):
         return ChatResponse(answer="UPDATES analyzes permitted public information in aggregate. Author identifiers are hashed, private messages are excluded, and age or geography remain unavailable unless supported by explicit public metadata.",actions=[{"label":"Read privacy guide","href":"/help#privacy"}],evidence=["UPDATES privacy and methodology policy"])
     if any(word in text for word in ("help","how","what can you")):
         return ChatResponse(answer="I can find the latest stories, explain a story’s sentiment and confidence, show connected sources, open saved items, and explain how UPDATES protects privacy.",actions=[{"label":"Help & Guide","href":"/help"},{"label":"Search news","href":"/search"}])
-    stop={"find","show","search","tell","give","about","for","me","the","a","an","please","coverage","story","stories","article","articles","on","of","is","are","what","who","why","how"};terms=[word.strip(".,?!:;()[]\"'") for word in text.split()];terms=[word for word in terms if len(word)>2 and word not in stop][:5]
+    stop={"find","show","search","tell","give","about","for","me","the","a","an","please","coverage","story","stories","article","articles","news","khabar","dikhao","batao","chahiye","on","of","is","are","what","who","why","how"};terms=[word.strip(".,?!:;()[]\"'") for word in text.split()];terms=[word for word in terms if len(word)>2 and word not in stop][:5]
     if terms:
         filters=[]
         for term in terms: filters.extend((StoryRecord.title.ilike(f"%{term}%"),StoryRecord.summary.ilike(f"%{term}%"),StoryRecord.category.ilike(f"%{term}%")))

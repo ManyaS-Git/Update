@@ -13,6 +13,7 @@ def test_chatbot_latest_and_topic_context():
     assert latest.status_code==200
     assert latest.json()["answer"]
     assert any(action["href"]=="/live" for action in latest.json()["actions"])
+    assert any(action["href"].startswith(("/topic/","/story/")) for action in latest.json()["actions"])
     topic=client.post("/api/chat",json={"message":"Explain this analysis","topic_slug":"reservation-protest"})
     assert topic.status_code==200
     assert "reservation" in topic.json()["answer"].lower()
@@ -22,6 +23,14 @@ def test_chatbot_latest_and_topic_context():
     assert story["title"] in contextual.json()["answer"]
     unknown=client.post("/api/chat",json={"message":"Tell me about qzxwvvnonexistent"})
     assert "couldn’t match" in unknown.json()["answer"]
+
+def test_chatbot_handles_hinglish_and_contextual_questions():
+    greeting=client.post("/api/chat",json={"message":"Namaskar"}).json()
+    assert "news assistant" in greeting["answer"]
+    thanks=client.post("/api/chat",json={"message":"Shukriya bhai"}).json()
+    assert "welcome" in thanks["answer"]
+    audience=client.post("/api/chat",json={"message":"Age aur geography batao","topic_slug":"reservation-protest"}).json()
+    assert "geography" in audience["answer"].lower()
 
 def test_story_search_and_detail():
     stories=client.get("/api/stories").json()
